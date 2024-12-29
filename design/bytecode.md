@@ -2,13 +2,17 @@
 
 The bytecode is stack based, and is largely based on the bytecodes of Python and Java. 
 
+This is a fixed instruction size bytecode. Each opcode is two bytes, followed by a two-byte argument, making for 4-byte instructions. The only "exception" to this is the LOAD_FUNC and LOAD_TYPE instructions, which are followed by a 32-byte hash literal.
+
 Every bytecode fragment is assumed to live within a single code object. This means that, for example, `JUMP` can only jump within the same code object.
 
 # Opcodes
 
-## Stack Manipulation
+## Stack Manipulation and Variables
 * LOAD_ARG(i) - Push the `i`th function argument onto the stack.
+* LOAD_LOCAL(i) - Push the `i`th local variable onto the stack.
 * LOAD_CONST(i) - Push the `i`th constant code object onto the stack. Literals in source code are stored in a table of constants.
+* STORE_LOCAL(i) - Set `locals[i] = pop()`.
 * POP - Remove the value at the top of the stack.
 
 ## Functions

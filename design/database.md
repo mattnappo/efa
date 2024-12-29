@@ -21,15 +21,13 @@ The usage of `T` in line 3 must be resolved. If line 1 is the most up-to-date de
 
 This map can be changed by the code tool for refactoring.
 
-## Code Map: `Hashes -> Bytecode`
+## Code Map: `Hashes -> CodeObjects`
 
-This map identifies each particular hash with the piece of code that the hash refers to. An element of the codomain is a chunk of readily executable bytecode which will be wrapped in a CodeObject before execution. 
-
-QUESTION: Should codom be bytecode or codeobject
+This map identifies each particular hash with the piece of code that the hash refers to. CodeObjects are described in more detail in the interpreter design doc. This map is the final map consulted when functions are called. It determines what code a hash actually refers to.
 
 ## Type Map: `Hashes -> Types`
 
-A `Type` stores information about types such as whether the type is a struct, enum, or union, and how members of the type should be accessed. Thus, the domain of this map is in the same keyspace as the Code Map, which is the same as the codomain of the Name Map. 
+A `Type` stores information about a type, such as whether the type is a struct, enum, or union, and how members of the type should be accessed. Thus, the domain of this map is the same keyspace as the Code Map, which is the same as the codomain of the Name Map. 
 
 ```rust
 enum Type {
