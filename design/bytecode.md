@@ -11,7 +11,7 @@ Every bytecode fragment is assumed to live within a single code object. This mea
 ## Stack Manipulation and Variables
 * LOAD_ARG(i) - Push the `i`th function argument onto the stack.
 * LOAD_LOCAL(i) - Push the `i`th local variable onto the stack.
-* LOAD_CONST(i) - Push the `i`th constant code object onto the stack. Literals in source code are stored in a table of constants.
+* LOAD_LIT(i) - Push the `i`th literal in the code object onto the stack.
 * STORE_LOCAL(i) - Set `locals[i] = pop()`.
 * POP - Remove the value at the top of the stack.
 

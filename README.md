@@ -1,2 +1,2 @@
 # efa
-Efa language
+Efa language. Actual language name pending.

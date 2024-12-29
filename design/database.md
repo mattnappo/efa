@@ -4,7 +4,7 @@ There are a few key maps that must be maintained. The first map keeps track of w
 
 ## Name Map: `Names -> Hashes`
 
-A `Name` is a string with some additional metadata that represents the name of a function, type, module, or constant. 
+A `Name` is a string with some additional metadata that represents the name of a function, type, or module.
 
 The Name Map is used to keep track of what names point to what hashes. Thus, `NameMap[name]` is the hash that the code tool currently thinks `name` should point to.
 
