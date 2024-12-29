@@ -36,20 +36,21 @@ Binary
 * XOR
 
 Unary
-* NOT
-* NEG
+* NOT - `push(-pop())`
+* NEG - `push(~pop())`
 
 ## Arrays
-From top to bottom: key, container, value.
+From top to bottom: end, start, key, container, value.
 
-* LOAD_CONT - Push `container[key]` to the top of the stack.
-* STORE_CONT- Set `container[key] = value`.
-* MAKE_SLICE - Make a new array `container[a:b]` and push it to the top of the stack.
+* LOAD_ARRAY - Push `container[key]` to the top of the stack.
+* STORE_ARRAY - Set `container[key] = value`.
 * MAKE_ARRAY - Push a new array to the top of the stack with `pop()` elements.
+* MAKE_SLICE - Make a new array `container[start:end]` and push it to the top of the stack.
+* STORE_SLICE - Set `container[start:end] = value`.
 
 ## Types
 
-* LOAD_TYPE(hash) - Push the 32-byte hash literal of a type onto the stack.
+* LOAD_TYPE(hash) - Push the 32-byte hash literal for a type onto the stack. Similar to LOAD_FUNC.
 
 ### Structs / Enums
 * LOAD_FIELD(i) - Push the `i`th field of the struct at the top of the stack to the top of the stack.

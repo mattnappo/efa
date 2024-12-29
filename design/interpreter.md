@@ -9,3 +9,4 @@ Fields:
 
 ## Call Stack and Frames
 
+The interpreter state maintains a fixed size call stack. Each entry is of type `StackFrame`, and contains the function to execute, 

@@ -19,9 +19,13 @@ User code
 
 The usage of `T` in line 3 must be resolved. If line 1 is the most up-to-date definition of `T`, then `NameMap['T']` will point to whatever the hash of the `T` definition on line 1 is.
 
-## Code Map: `Hashes -> CodeObject`
+This map can be changed by the code tool for refactoring.
 
-This map identifies each particular hash with the piece of code that the hash refers to. A CodeObject is essentially just a chunk of readily executable bytecode.
+## Code Map: `Hashes -> Bytecode`
+
+This map identifies each particular hash with the piece of code that the hash refers to. An element of the codomain is a chunk of readily executable bytecode which will be wrapped in a CodeObject before execution. 
+
+QUESTION: Should codom be bytecode or codeobject
 
 ## Type Map: `Hashes -> Types`
 
@@ -35,9 +39,37 @@ enum Type {
 }
 
 struct StructTy {
-    fields: Vec<(Type, Value)>
+    fields: BTreeMap<Name, (Type, Value)>
 }
-
 ```
+
+### Alternative struct implementation
+
+Make a macro to create `StructN` where `N` ranges from 0 to 128.
+```rust
+struct Struct4<T0, T1, T2, T3> {
+    f0: T0,
+    f1: T1,
+    f2: T2,
+    f3: T3,
+}
+...
+struct StructN<T0, T1, ..., TN> {
+    f0: T0,
+    f1: T1,
+    ...
+    fN: TN,
+}
+trait Struct;
+impl Struct for Structi {} // For all i in 1..N
+```
+
+Then the `enum Type` has `Struct` variant `Struct(Box<dyn Struct>)`
+
+See [the playground](https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=4d5631cdb8868e0861f9d4ae6a6ef5a3).
+
+Could make this even better by using unit structs so that the fields are unnamed.
+
 # Other Notes
-SHA-256 is used for all hashing.
+* SHA-256 is used for computing the hash of bytecode and types.
+* The Code Map and Type Map are, for the most part, immutable and append-only.
