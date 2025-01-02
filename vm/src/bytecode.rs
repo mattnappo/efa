@@ -1,8 +1,10 @@
+use std::ops::Deref;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BinOp {
-    Add = 0,
+    Add,
     Mul,
     Div,
     Sub,
@@ -11,12 +13,14 @@ pub enum BinOp {
     Shr,
     And,
     Or,
-    Xor,
+    // BitAnd,
+    // BitOr,
+    // BitXor,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum UnaryOp {
-    Not = 0,
+    Not,
     Neg,
 }
 
@@ -64,5 +68,13 @@ pub struct Bytecode {
 impl Bytecode {
     pub fn new(code: Vec<Instr>) -> Bytecode {
         Bytecode { code }
+    }
+}
+
+impl Deref for Bytecode {
+    type Target = Vec<Instr>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.code
     }
 }
