@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-enum BinOp {
+pub enum BinOp {
     Add = 0,
     Mul,
     Div,
@@ -15,17 +15,17 @@ enum BinOp {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-enum UnaryOp {
+pub enum UnaryOp {
     Not = 0,
     Neg,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-enum Instr {
-    LoadArg(u32),
-    LoadLocal(u32),
-    LoadLit(u32),
-    StoreLocal(u32),
+pub enum Instr {
+    LoadArg(usize),
+    LoadLocal(usize),
+    LoadLit(usize),
+    StoreLocal(usize),
     Pop,
 
     LoadFunc,
@@ -56,7 +56,13 @@ enum Instr {
     Nop,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Bytecode {
     code: Vec<Instr>,
+}
+
+impl Bytecode {
+    pub fn new(code: Vec<Instr>) -> Bytecode {
+        Bytecode { code }
+    }
 }
