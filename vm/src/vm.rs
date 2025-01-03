@@ -1,3 +1,4 @@
+use std::cmp::{Ord, Ordering};
 use std::collections::HashMap;
 use std::ops::{Add, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
 
@@ -21,7 +22,10 @@ struct CodeObject<'a> {
     hash: [u8; 32],
     litpool: Vec<Value<'a>>,
     argcount: usize,
+    is_void: bool,
     localnames: Vec<String>,
+    /// Map from label index to an offset in the bytecode
+    labels: HashMap<usize, usize>,
 
     code: Bytecode,
 }
@@ -53,6 +57,24 @@ impl<'a> Value<'a> {
     }
 }
 
+impl<'a> PartialOrd for Value<'a> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (Value::I32(x), Value::I32(y)) => Some(x.cmp(&y)),
+            _ => panic!("cannot compare non-integer values"),
+        }
+    }
+}
+
+impl<'a> Ord for Value<'a> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Value::I32(x), Value::I32(y)) => x.cmp(&y),
+            _ => panic!("cannot compare non-integer values"),
+        }
+    }
+}
+
 impl<'a> Vm<'a> {
     pub fn new() -> Vm<'a> {
         Vm {
@@ -77,9 +99,7 @@ impl<'a> Vm<'a> {
             }
 
             let instr = &bytecode[self.call_stack.last().unwrap().instruction];
-            // self.exec_instr(instr);
-
-            Vm::exec_instr(self, instr)?;
+            self.exec_instr(instr)?;
 
             // TODO: Will need to change when adding control flow
             self.call_stack.iter_mut().last().unwrap().instruction += 1;
@@ -118,6 +138,7 @@ impl<'a> Vm<'a> {
         let frame = self.call_stack.iter_mut().last().unwrap();
         let stack = &mut self.data_stack;
 
+        let mut next_instr = frame.instruction + 1;
         match instr {
             Instr::LoadArg(i) => {
                 if *i >= frame.code_obj.argcount {
@@ -149,14 +170,68 @@ impl<'a> Vm<'a> {
             Instr::LoadFunc => {}
             Instr::Call => {}
             Instr::Return => {}
-            Instr::ReturnValue => {}
 
-            Instr::Jump => {}
-            Instr::JumpEq => {}
-            Instr::JumpGt => {}
-            Instr::JumpGe => {}
-            Instr::JumpLt => {}
-            Instr::JumpLe => {}
+            Instr::Jump(label) => next_instr = frame.code_obj.labels[label],
+            Instr::JumpEq(label) => {
+                if stack.len() < 2 {
+                    bail!("cannot perform comparison: stack underflow");
+                }
+
+                let arg1 = stack.pop().unwrap();
+                let arg2 = stack.pop().unwrap();
+
+                if arg1 == arg2 {
+                    next_instr = frame.code_obj.labels[label];
+                }
+            }
+            Instr::JumpGt(label) => {
+                if stack.len() < 2 {
+                    bail!("cannot perform comparison: stack underflow");
+                }
+
+                let arg1 = stack.pop().unwrap();
+                let arg2 = stack.pop().unwrap();
+
+                if arg1 > arg2 {
+                    next_instr = frame.code_obj.labels[label];
+                }
+            }
+            Instr::JumpGe(label) => {
+                if stack.len() < 2 {
+                    bail!("cannot perform comparison: stack underflow");
+                }
+
+                let arg1 = stack.pop().unwrap();
+                let arg2 = stack.pop().unwrap();
+
+                if arg1 >= arg2 {
+                    next_instr = frame.code_obj.labels[label];
+                }
+            }
+            Instr::JumpLt(label) => {
+                if stack.len() < 2 {
+                    bail!("cannot perform comparison: stack underflow");
+                }
+
+                let arg1 = stack.pop().unwrap();
+                let arg2 = stack.pop().unwrap();
+
+                if arg1 < arg2 {
+                    next_instr = frame.code_obj.labels[label];
+                }
+            }
+            Instr::JumpLe(label) => {
+                if stack.len() < 2 {
+                    bail!("cannot perform comparison: stack underflow");
+                }
+
+                let arg1 = stack.pop().unwrap();
+                let arg2 = stack.pop().unwrap();
+
+                if arg1 <= arg2 {
+                    next_instr = frame.code_obj.labels[label];
+                }
+            }
 
             Instr::BinOp(op) => {
                 if stack.len() < 2 {
@@ -202,6 +277,8 @@ impl<'a> Vm<'a> {
 
             Instr::Nop => {}
         }
+
+        frame.instruction = next_instr;
 
         Ok(())
     }
@@ -332,6 +409,8 @@ pub mod tests {
             hash: [0; 32],
             litpool: vec![Value::int(5), Value::string("hello")],
             argcount: 2, // x and y
+            is_void: false,
+            labels: HashMap::new(),
             localnames: vec!["x".into(), "y".into(), "z".into()],
             code,
         }
