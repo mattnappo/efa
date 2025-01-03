@@ -85,54 +85,20 @@ impl<'a> Vm<'a> {
         }
     }
 
-    /// Start VM bytecode execution
-    pub fn exec(&mut self) -> Result<()> {
-        // let main_func = self.call_stack.last().unwrap();
-
+    /// Execute the frame at the top of the call stack.
+    pub fn exec_top_frame(&mut self) -> Result<()> {
         let bytecode = &self.call_stack.last().unwrap().code_obj.code;
-
-        // main_func.instruction = 0;
-
-        loop {
-            if self.call_stack.last().unwrap().instruction >= bytecode.len() {
-                break;
-            }
-
+        while self.call_stack.last().unwrap().instruction < bytecode.len() {
             let instr = &bytecode[self.call_stack.last().unwrap().instruction];
             self.exec_instr(instr)?;
-
-            // TODO: Will need to change when adding control flow
-            self.call_stack.iter_mut().last().unwrap().instruction += 1;
         }
 
         Ok(())
     }
 
-    /*
-    pub fn exec2(&mut self) -> Result<()> {
-        // Get the current frame from the call stack.
-        let call_frame = self
-            .call_stack
-            .last_mut()
-            .ok_or_else(|| anyhow!("no main func on stack"))?;
-
-        let bytecode = &call_frame.code_obj.code;
-        let bytecode_len = bytecode.len();
-
-        while call_frame.instruction < bytecode_len {
-            // Get the current instruction.
-            let instruction = &bytecode[call_frame.instruction];
-
-            // Execute the instruction.
-            Vm::exec_instr(self, instruction)?;
-
-            // Increment the instruction pointer for the next iteration.
-            call_frame.instruction += 1;
-        }
-
-        Ok(())
-    }
-    */
+    // TODO: pub fn exec_codeobj / exec_main
+    // Wraps a code object in a frame and executes the frame
+    // Need to deal with `locals` field of uninitialized local vars.
 
     fn exec_instr(&mut self, instr: &Instr) -> Result<()> {
         let frame = self.call_stack.iter_mut().last().unwrap();
@@ -177,10 +143,10 @@ impl<'a> Vm<'a> {
                     bail!("cannot perform comparison: stack underflow");
                 }
 
-                let arg1 = stack.pop().unwrap();
-                let arg2 = stack.pop().unwrap();
+                let rhs = stack.pop().unwrap();
+                let lhs = stack.pop().unwrap();
 
-                if arg1 == arg2 {
+                if lhs == rhs {
                     next_instr = frame.code_obj.labels[label];
                 }
             }
@@ -189,10 +155,10 @@ impl<'a> Vm<'a> {
                     bail!("cannot perform comparison: stack underflow");
                 }
 
-                let arg1 = stack.pop().unwrap();
-                let arg2 = stack.pop().unwrap();
+                let rhs = stack.pop().unwrap();
+                let lhs = stack.pop().unwrap();
 
-                if arg1 > arg2 {
+                if lhs > rhs {
                     next_instr = frame.code_obj.labels[label];
                 }
             }
@@ -201,10 +167,10 @@ impl<'a> Vm<'a> {
                     bail!("cannot perform comparison: stack underflow");
                 }
 
-                let arg1 = stack.pop().unwrap();
-                let arg2 = stack.pop().unwrap();
+                let rhs = stack.pop().unwrap();
+                let lhs = stack.pop().unwrap();
 
-                if arg1 >= arg2 {
+                if lhs >= rhs {
                     next_instr = frame.code_obj.labels[label];
                 }
             }
@@ -213,10 +179,10 @@ impl<'a> Vm<'a> {
                     bail!("cannot perform comparison: stack underflow");
                 }
 
-                let arg1 = stack.pop().unwrap();
-                let arg2 = stack.pop().unwrap();
+                let rhs = stack.pop().unwrap();
+                let lhs = stack.pop().unwrap();
 
-                if arg1 < arg2 {
+                if lhs < rhs {
                     next_instr = frame.code_obj.labels[label];
                 }
             }
@@ -225,10 +191,10 @@ impl<'a> Vm<'a> {
                     bail!("cannot perform comparison: stack underflow");
                 }
 
-                let arg1 = stack.pop().unwrap();
-                let arg2 = stack.pop().unwrap();
+                let rhs = stack.pop().unwrap();
+                let lhs = stack.pop().unwrap();
 
-                if arg1 <= arg2 {
+                if lhs <= rhs {
                     next_instr = frame.code_obj.labels[label];
                 }
             }
@@ -238,19 +204,19 @@ impl<'a> Vm<'a> {
                     bail!("cannot perform binary operation: stack underflow");
                 }
 
-                let arg1 = stack.pop().unwrap();
-                let arg2 = stack.pop().unwrap();
+                let rhs = stack.pop().unwrap();
+                let lhs = stack.pop().unwrap();
 
                 match op {
-                    BinOp::Add => stack.push(arg1 + arg2),
-                    BinOp::Mul => stack.push(arg1 * arg2),
-                    BinOp::Div => stack.push(arg1 / arg2),
-                    BinOp::Sub => stack.push(arg1 - arg2),
-                    BinOp::Mod => stack.push(arg1 % arg2),
-                    BinOp::Shl => stack.push(arg1 << arg2),
-                    BinOp::Shr => stack.push(arg1 >> arg2),
-                    BinOp::And => stack.push(arg1.and(arg2)),
-                    BinOp::Or => stack.push(arg1.and(arg2)),
+                    BinOp::Add => stack.push(lhs + rhs),
+                    BinOp::Mul => stack.push(lhs * rhs),
+                    BinOp::Div => stack.push(lhs / rhs),
+                    BinOp::Sub => stack.push(lhs - rhs),
+                    BinOp::Mod => stack.push(lhs % rhs),
+                    BinOp::Shl => stack.push(lhs << rhs),
+                    BinOp::Shr => stack.push(lhs >> rhs),
+                    BinOp::And => stack.push(lhs.and(rhs)),
+                    BinOp::Or => stack.push(lhs.and(rhs)),
                 }
             }
             Instr::UnaryOp(op) => {
@@ -416,6 +382,19 @@ pub mod tests {
         }
     }
 
+    fn init_code_obj_with_pool<'a>(code: Bytecode, litpool: Vec<Value<'a>>) -> CodeObject<'a> {
+        CodeObject {
+            name: "testobj".to_string(),
+            hash: [0; 32],
+            litpool,
+            argcount: 2, // x and y
+            is_void: false,
+            labels: HashMap::new(),
+            localnames: vec!["x".into(), "y".into(), "z".into()],
+            code,
+        }
+    }
+
     fn init_test_vm<'a>(code_obj: &'a CodeObject) -> Vm<'a> {
         let mut vm = Vm::new();
 
@@ -499,11 +478,90 @@ pub mod tests {
         vm.data_stack.push(Value::int(3));
         vm.data_stack.push(Value::int(2));
 
-        vm.exec().unwrap();
+        vm.exec_top_frame().unwrap();
 
+        // 3 + 2
+        // 6 * 5
+        // 4 % 30
+        // 5 - 4
+        // -1
         assert_eq!(
             vm.data_stack.pop().unwrap(),
-            Value::int(-((((2 + 3) * 6) % 4) - 5))
+            Value::int(-(5 - (4 % (6 * (3 + 2)))))
         );
+    }
+
+    #[test]
+    fn test_jump() {
+        let mut obj = init_code_obj(Bytecode::new(vec![
+            Instr::Jump(0),
+            Instr::BinOp(BinOp::Add),
+            Instr::BinOp(BinOp::Mul),
+        ]));
+        obj.labels.insert(0, 2);
+        let mut vm = init_test_vm(&obj);
+
+        vm.data_stack.push(Value::int(5));
+        vm.data_stack.push(Value::int(4));
+
+        vm.exec_top_frame().unwrap();
+
+        assert_eq!(vm.data_stack.pop().unwrap(), Value::int(20));
+    }
+
+    #[test]
+    fn test_jump_greater() {
+        let mut obj = init_code_obj_with_pool(
+            Bytecode::new(vec![
+                Instr::LoadLit(2), // 4
+                Instr::LoadLit(2), // 4
+                Instr::LoadLit(2), // 4
+                Instr::LoadLit(0), // 1
+                Instr::LoadLit(1), // 2
+                Instr::JumpGt(0),  // False (since 1 > 2 is false)
+                Instr::BinOp(BinOp::Add),
+                Instr::BinOp(BinOp::Mul),
+            ]),
+            vec![Value::int(1), Value::int(2), Value::int(4)],
+        );
+        obj.labels.insert(0, 7);
+        let mut vm = init_test_vm(&obj);
+
+        vm.data_stack.push(Value::int(1));
+        vm.data_stack.push(Value::int(2));
+        vm.data_stack.push(Value::int(4));
+        vm.data_stack.push(Value::int(4));
+
+        vm.exec_top_frame().unwrap();
+
+        assert_eq!(vm.data_stack.pop().unwrap(), Value::int(32));
+    }
+
+    #[test]
+    fn test_jump_less() {
+        let mut obj = init_code_obj_with_pool(
+            Bytecode::new(vec![
+                Instr::LoadLit(2), // 4
+                Instr::LoadLit(2), // 4
+                Instr::LoadLit(2), // 4
+                Instr::LoadLit(0), // 1
+                Instr::LoadLit(1), // 2
+                Instr::JumpLt(0),  // True (1 < 2)
+                Instr::BinOp(BinOp::Add),
+                Instr::BinOp(BinOp::Mul),
+            ]),
+            vec![Value::int(1), Value::int(2), Value::int(4)],
+        );
+        obj.labels.insert(0, 7);
+        let mut vm = init_test_vm(&obj);
+
+        vm.data_stack.push(Value::int(1));
+        vm.data_stack.push(Value::int(2));
+        vm.data_stack.push(Value::int(4));
+        vm.data_stack.push(Value::int(4));
+
+        vm.exec_top_frame().unwrap();
+
+        assert_eq!(vm.data_stack.pop().unwrap(), Value::int(16));
     }
 }
