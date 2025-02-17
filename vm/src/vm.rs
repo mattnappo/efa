@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::ops::{Add, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
 
 use anyhow::{anyhow, bail, Result};
+use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use super::bytecode::{BinOp, Bytecode, Instr, UnaryOp};
 
@@ -16,10 +18,8 @@ struct Vm<'a> {
     call_stack_cap: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct CodeObject<'a> {
-    name: String,
-    hash: [u8; 32],
     litpool: Vec<Value<'a>>,
     argcount: usize,
     is_void: bool,
@@ -30,16 +30,21 @@ struct CodeObject<'a> {
     code: Bytecode,
 }
 
+/// An execution context for a code object
 #[derive(Debug, Clone)]
 struct StackFrame<'a> {
     code_obj: &'a CodeObject<'a>,
-    // TODO: Will need to make this a stack to keep track of nesting scope.
+    // They all start uninitialized.
+    // ... Or it starts empty.
+    // Will need to think
+    // Also consider making it a BTreeMap (with a max cap)
     locals: HashMap<String, Value<'a>>,
     instruction: usize,
+    // maybe add some debug info like a name
 }
 
 /// A value that can be on the stack.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 enum Value<'a> {
     I32(i32),
     String(String),
@@ -100,7 +105,7 @@ impl<'a> Vm<'a> {
     // Wraps a code object in a frame and executes the frame
     // Need to deal with `locals` field of uninitialized local vars.
 
-    fn exec_instr(&mut self, instr: &Instr) -> Result<()> {
+    fn exec_instr(&mut self, instr: &'a Instr) -> Result<()> {
         let frame = self.call_stack.iter_mut().last().unwrap();
         let stack = &mut self.data_stack;
 
@@ -133,8 +138,20 @@ impl<'a> Vm<'a> {
                 stack.pop();
             }
 
-            Instr::LoadFunc => {}
-            Instr::Call => {}
+            Instr::LoadFunc(hash) => {
+                stack.push(Value::<'a>::Hash(&hash));
+            }
+
+            Instr::Call => {
+                // Pop hash from stack
+                if let Some(Value::Hash(hash)) = stack.pop() {
+                    // find the right code object by looking up the hash in the database
+                    // construct a new stackframe
+                    // push to the vm.call_stack
+                } else {
+                    bail!("cannot call function: function hash not present");
+                }
+            }
             Instr::Return => {}
 
             Instr::Jump(label) => next_instr = frame.code_obj.labels[label],
@@ -247,6 +264,19 @@ impl<'a> Vm<'a> {
         frame.instruction = next_instr;
 
         Ok(())
+    }
+}
+
+impl<'a> CodeObject<'a> {
+    pub fn hash(&self) -> Result<[u8; 32]> {
+        let obj = rmp_serde::to_vec(&self)?;
+        let mut hasher = Sha256::new();
+        hasher.update(obj);
+        hasher
+            .finalize()
+            .to_vec()
+            .try_into()
+            .map_err(|_| anyhow!("failed to hash CodeObject"))
     }
 }
 
@@ -371,8 +401,6 @@ pub mod tests {
 
     fn init_code_obj<'a>(code: Bytecode) -> CodeObject<'a> {
         CodeObject {
-            name: "testobj".to_string(),
-            hash: [0; 32],
             litpool: vec![Value::int(5), Value::string("hello")],
             argcount: 2, // x and y
             is_void: false,
@@ -384,8 +412,6 @@ pub mod tests {
 
     fn init_code_obj_with_pool<'a>(code: Bytecode, litpool: Vec<Value<'a>>) -> CodeObject<'a> {
         CodeObject {
-            name: "testobj".to_string(),
-            hash: [0; 32],
             litpool,
             argcount: 2, // x and y
             is_void: false,

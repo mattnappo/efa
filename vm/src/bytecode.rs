@@ -32,7 +32,7 @@ pub enum Instr {
     StoreLocal(usize),
     Pop,
 
-    LoadFunc,
+    LoadFunc([u8; 32]),
     Call,
     Return,
 
