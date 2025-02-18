@@ -2,6 +2,8 @@ use std::ops::Deref;
 
 use serde::{Deserialize, Serialize};
 
+use super::Hash;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BinOp {
     Add,
@@ -32,7 +34,7 @@ pub enum Instr {
     StoreLocal(usize),
     Pop,
 
-    LoadFunc([u8; 32]),
+    LoadFunc(Hash),
     Call,
     Return,
 

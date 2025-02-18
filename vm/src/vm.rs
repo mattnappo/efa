@@ -4,9 +4,10 @@ use std::ops::{Add, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
 
 use anyhow::{anyhow, bail, Result};
 use serde::Serialize;
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha512};
 
 use super::bytecode::{BinOp, Bytecode, Instr, UnaryOp};
+use super::{Hash, HASH_SIZE};
 
 const STACK_CAP: usize = 256;
 
@@ -49,7 +50,7 @@ enum Value<'a> {
     I32(i32),
     String(String),
     Bool(bool),
-    Hash(&'a [u8; 32]),
+    Hash(&'a Hash),
 }
 
 impl<'a> Value<'a> {
@@ -268,15 +269,18 @@ impl<'a> Vm<'a> {
 }
 
 impl<'a> CodeObject<'a> {
-    pub fn hash(&self) -> Result<[u8; 32]> {
+    pub fn hash(&self) -> Result<Hash> {
         let obj = rmp_serde::to_vec(&self)?;
-        let mut hasher = Sha256::new();
+        let mut hasher = Sha512::new();
         hasher.update(obj);
-        hasher
-            .finalize()
-            .to_vec()
+        (&hasher.finalize().to_vec()[0..HASH_SIZE])
             .try_into()
             .map_err(|_| anyhow!("failed to hash CodeObject"))
+    }
+
+    pub fn hash_str(&self) -> Result<String> {
+        let hash = self.hash()?;
+        Ok(format!("0x{}", hex::encode(hash)))
     }
 }
 
@@ -589,5 +593,11 @@ pub mod tests {
         vm.exec_top_frame().unwrap();
 
         assert_eq!(vm.data_stack.pop().unwrap(), Value::int(16));
+    }
+
+    #[test]
+    fn test_hash_code_obj() {
+        let obj = init_code_obj(Bytecode::default());
+        println!("{:?}", obj.hash_str());
     }
 }

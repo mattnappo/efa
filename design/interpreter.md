@@ -16,7 +16,7 @@ Fields:
 
 ## Call Stack and Frames
 
-The interpreter state maintains a fixed size call stack. Each entry is of type `StackFrame`, and contains a CodeObject to execute. Each `StackFrame` also has a mapping of local variables to their values.
+The interpreter state maintains a fixed size call stack. Each entry is of type `StackFrame`, and contains a CodeObject to execute. Each `StackFrame` also has a mapping of local variables to their values. Thus, a call stack acts as a execution context for a code object.
 
 Fields:
 * codeobj - The codeobject of the frame/function

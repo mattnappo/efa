@@ -23,7 +23,7 @@ This map can be changed by the code tool for refactoring.
 
 ## Code Map: `Hashes -> CodeObjects`
 
-This map identifies each particular hash with the piece of code that the hash refers to. CodeObjects are described in more detail in the interpreter design doc. This map is the final map consulted when functions are called. It determines what code a hash actually refers to.
+This map identifies each particular hash with the piece of code that the hash refers to. CodeObjects are described in more detail in the interpreter design doc. This map is the final map consulted when functions are called. It determines what code(object) a hash actually refers to.
 
 ## Type Map: `Hashes -> Types`
 
