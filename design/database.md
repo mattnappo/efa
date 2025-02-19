@@ -68,6 +68,19 @@ See [the playground](https://play.rust-lang.org/?version=stable&mode=debug&editi
 
 Could make this even better by using unit structs so that the fields are unnamed.
 
+# Database Implementation
+Core database engine is SQLite.
+
+Three tables:
+1. names  -> (hashes, codeobj|type)
+2. hashes -> (code objects, timestamp)
+3. hashes -> (types, timestamp)
+
+## API
+ * Create DB - creates a new db at given file location with all three tables set up, but empty
+ * NewCodeObj(name, codeobj) - create a new codeobj in [2] and link to it in [1]
+ * NewTy(name, ty) - create new ty in [3] and link to it accordingly in [1]
+
 # Other Notes
-* SHA-256 is used for computing the hash of bytecode and types.
+* SHA-512 truncated to the first 16 bytes is used for computing the hash of bytecode and types.
 * The Code Map and Type Map are, for the most part, immutable and append-only.

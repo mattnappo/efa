@@ -1,4 +1,5 @@
 pub mod bytecode;
+pub mod db;
 pub mod vm;
 
 pub const HASH_SIZE: usize = 16;

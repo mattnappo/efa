@@ -6,8 +6,8 @@ use anyhow::{anyhow, bail, Result};
 use serde::Serialize;
 use sha2::{Digest, Sha512};
 
-use super::bytecode::{BinOp, Bytecode, Instr, UnaryOp};
-use super::{Hash, HASH_SIZE};
+use crate::bytecode::{BinOp, Bytecode, Instr, UnaryOp};
+use crate::{Hash, HASH_SIZE};
 
 const STACK_CAP: usize = 256;
 

@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use serde::{Deserialize, Serialize};
 
-use super::Hash;
+use crate::Hash;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BinOp {
