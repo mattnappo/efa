@@ -121,27 +121,35 @@ impl Vm {
         self.exec()
     }
 
+    /// Run the main function, but dump the entire stack.
+    fn run_frame(&mut self, frame: StackFrame) -> Result<StackFrame> {
+        self.call_stack.push(frame);
+        self.exec()?;
+        Ok(self.call_stack.last().unwrap().clone())
+    }
+
     // TODO: pub fn exec_codeobj / exec_main
     // Wraps a code object in a frame and executes the frame
     // Need to deal with `locals` field of uninitialized local vars.
     fn exec(&mut self) -> Result<i32> {
         let mut status_code = 0;
 
-        loop {
-            let call_stack = &mut self.call_stack;
-            let frame = call_stack.iter_mut().last().unwrap();
-
+        while !self.call_stack.is_empty() {
+            let l = self.call_stack.len();
+            let frame = &mut self.call_stack[l - 1];
             let stack = &mut frame.stack;
-            let instr = &frame.code_obj.code[frame.instruction];
+            let instr = frame.code_obj.code[frame.instruction].clone();
+            let mut next_instr_ptr = frame.instruction + 1; // Default
 
-            let mut next_instr = frame.instruction + 1; // Default
+            let mut return_value: Return = Return::None;
+            let mut next_frame: Option<StackFrame> = None;
 
             match instr {
                 Instr::LoadArg(i) => {
-                    if *i >= frame.code_obj.argcount {
+                    if i >= frame.code_obj.argcount {
                         bail!("argument index {i} out of bounds");
                     }
-                    let arg_name = &frame.code_obj.localnames[*i];
+                    let arg_name = &frame.code_obj.localnames[i];
                     stack.push(frame.locals[arg_name].clone());
                 }
                 Instr::LoadLocal(i) => {
@@ -153,7 +161,7 @@ impl Vm {
                     stack.push(frame.locals[arg_name].clone());
                 }
                 Instr::LoadLit(i) => {
-                    stack.push(frame.code_obj.litpool[*i].clone());
+                    stack.push(frame.code_obj.litpool[i].clone());
                 }
                 Instr::StoreLocal(i) => {
                     let k = i + frame.code_obj.argcount;
@@ -165,7 +173,7 @@ impl Vm {
                 }
 
                 Instr::LoadFunc(hash) => {
-                    stack.push(Value::Hash(*hash));
+                    stack.push(Value::Hash(hash));
                 }
 
                 Instr::Call => {
@@ -182,7 +190,8 @@ impl Vm {
                             instruction: 0,
                         };
 
-                        call_stack.push(new_frame);
+                        next_frame = Some(new_frame);
+                        // self.call_stack.push(new_frame);
                     } else {
                         bail!("cannot call function: function hash not present");
                     }
@@ -192,22 +201,15 @@ impl Vm {
                     // If we have `return x`, then we (the compiler) LOAD x to push it to the top of the stack
 
                     // If this is the main function, just exit
-                    if call_stack.len() == 1 {
-                        let return_value = stack.pop().unwrap();
-                        if let Value::I32(code) = return_value {
-                            status_code = code;
-                        }
-                        break;
-                    }
 
                     if frame.code_obj.is_void {
-                        self.call_stack.pop();
+                        return_value = Return::Void;
                     } else {
                         // Get the return value from the top of current frame's stack
-                        let return_value = stack.pop().unwrap();
+                        return_value = Return::Value(stack.pop().unwrap());
 
                         // Pop current frame from call stack
-                        call_stack.pop();
+                        // self.call_stack.pop();
 
                         // Push the return value onto the top of the caller's stack
                         // call_stack.last().unwrap().stack.push(return_value);
@@ -239,7 +241,7 @@ impl Vm {
                     Return::None => {}
                 }
                          */
-                Instr::Jump(label) => next_instr = frame.code_obj.labels[&label],
+                Instr::Jump(label) => next_instr_ptr = frame.code_obj.labels[&label],
                 Instr::JumpEq(label) => {
                     if stack.len() < 2 {
                         bail!("cannot perform comparison: stack underflow");
@@ -249,7 +251,7 @@ impl Vm {
                     let lhs = stack.pop().unwrap();
 
                     if lhs == rhs {
-                        next_instr = frame.code_obj.labels[&label];
+                        next_instr_ptr = frame.code_obj.labels[&label];
                     }
                 }
                 Instr::JumpGt(label) => {
@@ -261,7 +263,7 @@ impl Vm {
                     let lhs = stack.pop().unwrap();
 
                     if lhs > rhs {
-                        next_instr = frame.code_obj.labels[&label];
+                        next_instr_ptr = frame.code_obj.labels[&label];
                     }
                 }
                 Instr::JumpGe(label) => {
@@ -273,7 +275,7 @@ impl Vm {
                     let lhs = stack.pop().unwrap();
 
                     if lhs >= rhs {
-                        next_instr = frame.code_obj.labels[&label];
+                        next_instr_ptr = frame.code_obj.labels[&label];
                     }
                 }
                 Instr::JumpLt(label) => {
@@ -285,7 +287,7 @@ impl Vm {
                     let lhs = stack.pop().unwrap();
 
                     if lhs < rhs {
-                        next_instr = frame.code_obj.labels[&label];
+                        next_instr_ptr = frame.code_obj.labels[&label];
                     }
                 }
                 Instr::JumpLe(label) => {
@@ -297,7 +299,7 @@ impl Vm {
                     let lhs = stack.pop().unwrap();
 
                     if lhs <= rhs {
-                        next_instr = frame.code_obj.labels[&label];
+                        next_instr_ptr = frame.code_obj.labels[&label];
                     }
                 }
 
@@ -347,7 +349,38 @@ impl Vm {
             }
 
             // Update program counter for this frame
-            frame.instruction = next_instr;
+            frame.instruction = next_instr_ptr;
+
+            // If the instruction was a call, then update the stack frame
+            if let Some(frame) = next_frame {
+                println!("pushing to call stack");
+                self.call_stack.push(frame);
+            }
+
+            // Handle a return
+            match return_value {
+                Return::Value(val) => {
+                    // If the main function returns
+                    if l == 1 {
+                        // Note: this case keeps the main function's frame around
+                        if let Value::I32(code) = val {
+                            status_code = code;
+                        }
+                        break;
+                    }
+
+                    println!("returned with value");
+                    self.call_stack.pop();
+                    // Push the returning function's return value onto the caller's stack
+                    self.call_stack[l - 2].stack.push(val);
+                }
+                Return::Void => {
+                    println!("returned from void");
+                    self.call_stack.pop();
+                }
+                // Instruction was not a return
+                Return::None => {}
+            }
         }
 
         Ok(status_code)
@@ -502,6 +535,16 @@ pub mod tests {
         }
     }
 
+    pub fn init_frame(code: Bytecode) -> StackFrame {
+        let code_obj = init_code_obj(code);
+        StackFrame {
+            code_obj,
+            stack: Vec::new(),
+            locals: HashMap::new(),
+            instruction: 0,
+        }
+    }
+
     pub fn init_nondet_code_obj(code: Bytecode) -> CodeObject {
         let s: String = rand::rng()
             .sample_iter(&Alphanumeric)
@@ -551,70 +594,68 @@ pub mod tests {
 
     #[test]
     fn test_load_arg() {
-        let obj = init_code_obj(Bytecode::default());
-        let mut vm = init_test_vm(&obj);
+        let main = init_frame(bytecode![Instr::LoadArg(0), Instr::LoadArg(1)]);
+        let mut vm = Vm::new().unwrap();
 
-        vm.exec_instr(&Instr::LoadArg(0)).unwrap();
-        let tos = vm.data_stack.pop().unwrap();
+        let mut frame = vm.run_frame(main).unwrap();
+        let tos = frame.stack.pop().unwrap();
         assert!(matches!(tos, Value::I32(10)));
-
-        vm.exec_instr(&Instr::LoadArg(1)).unwrap();
-        let tos = vm.data_stack.pop().unwrap();
+        let tos = frame.stack.pop().unwrap();
         assert!(matches!(tos, Value::String(ref s) if s == "ok"));
     }
 
     #[test]
     fn test_load_local() {
-        let obj = init_code_obj(Bytecode::default());
-        let mut vm = init_test_vm(&obj);
+        let main = init_frame(bytecode![Instr::LoadLocal(0)]);
+        let mut vm = Vm::new().unwrap();
 
-        vm.exec_instr(&Instr::LoadLocal(0)).unwrap();
-        let tos = vm.data_stack.pop().unwrap();
+        let mut frame = vm.run_frame(main).unwrap();
+        let tos = frame.stack.pop().unwrap();
         assert!(matches!(tos, Value::I32(64)));
     }
 
     #[test]
     fn test_load_lit() {
-        let obj = init_code_obj(Bytecode::default());
-        let mut vm = init_test_vm(&obj);
+        let main = init_frame(bytecode![Instr::LoadLit(1)]);
+        let mut vm = Vm::new().unwrap();
 
-        vm.exec_instr(&Instr::LoadLit(1)).unwrap();
-        let tos = vm.data_stack.pop().unwrap();
+        let mut frame = vm.run_frame(main).unwrap();
+        let tos = frame.stack.pop().unwrap();
         assert!(matches!(tos, Value::String(ref s) if s == "hello"));
     }
 
     #[test]
     fn test_store_local() {
-        let obj = init_code_obj(Bytecode::default());
-        let mut vm = init_test_vm(&obj);
+        let mut main = init_frame(bytecode![Instr::StoreLocal(0)]);
+        let mut vm = Vm::new().unwrap();
 
         let v = Value::I32(100);
-        vm.data_stack.push(v.clone());
-        vm.exec_instr(&Instr::StoreLocal(0)).unwrap();
+        main.stack.push(v.clone());
+
+        let frame = vm.run_frame(main).unwrap();
 
         // Check
-        let frame = vm.call_stack.iter().last().unwrap();
         assert_eq!(frame.locals.get("z".into()).unwrap().to_owned(), v);
     }
 
     #[test]
     fn test_ops() {
-        let obj = init_code_obj(bytecode![
+        let mut main = init_frame(bytecode![
             Instr::BinOp(BinOp::Add),
             Instr::BinOp(BinOp::Mul),
             Instr::BinOp(BinOp::Mod),
             Instr::BinOp(BinOp::Sub),
             Instr::UnaryOp(UnaryOp::Neg)
         ]);
-        let mut vm = init_test_vm(&obj);
+        let mut vm = Vm::new().unwrap();
 
-        vm.data_stack.push(Value::int(5));
-        vm.data_stack.push(Value::int(4));
-        vm.data_stack.push(Value::int(6));
-        vm.data_stack.push(Value::int(3));
-        vm.data_stack.push(Value::int(2));
+        main.stack.push(Value::int(5));
+        main.stack.push(Value::int(4));
+        main.stack.push(Value::int(6));
+        main.stack.push(Value::int(3));
+        main.stack.push(Value::int(2));
 
-        vm.exec_top_frame().unwrap();
+        let mut frame = vm.run_frame(main).unwrap();
 
         // 3 + 2
         // 6 * 5
@@ -622,32 +663,32 @@ pub mod tests {
         // 5 - 4
         // -1
         assert_eq!(
-            vm.data_stack.pop().unwrap(),
+            frame.stack.pop().unwrap(),
             Value::int(-(5 - (4 % (6 * (3 + 2)))))
         );
     }
 
     #[test]
     fn test_jump() {
-        let mut obj = init_code_obj(bytecode![
+        let mut main = init_frame(bytecode![
             Instr::Jump(0),
             Instr::BinOp(BinOp::Add),
             Instr::BinOp(BinOp::Mul)
         ]);
-        obj.labels.insert(0, 2);
-        let mut vm = init_test_vm(&obj);
+        main.code_obj.labels.insert(0, 2);
+        let mut vm = Vm::new().unwrap();
 
-        vm.data_stack.push(Value::int(5));
-        vm.data_stack.push(Value::int(4));
+        main.stack.push(Value::int(5));
+        main.stack.push(Value::int(4));
 
-        vm.exec_top_frame().unwrap();
+        let mut frame = vm.run_frame(main).unwrap();
 
-        assert_eq!(vm.data_stack.pop().unwrap(), Value::int(20));
+        assert_eq!(frame.stack.pop().unwrap(), Value::int(20));
     }
 
     #[test]
     fn test_jump_greater() {
-        let mut obj = init_code_obj_with_pool(
+        let mut code_obj = init_code_obj_with_pool(
             bytecode![
                 Instr::LoadLit(2), // 4
                 Instr::LoadLit(2), // 4
@@ -660,22 +701,24 @@ pub mod tests {
             ],
             vec![Value::int(1), Value::int(2), Value::int(4)],
         );
-        obj.labels.insert(0, 7);
-        let mut vm = init_test_vm(&obj);
+        code_obj.labels.insert(0, 7);
 
-        vm.data_stack.push(Value::int(1));
-        vm.data_stack.push(Value::int(2));
-        vm.data_stack.push(Value::int(4));
-        vm.data_stack.push(Value::int(4));
+        let main = StackFrame {
+            code_obj,
+            stack: vec![Value::int(1), Value::int(2), Value::int(4), Value::int(4)],
+            instruction: 0,
+            locals: HashMap::new(),
+        };
 
-        vm.exec_top_frame().unwrap();
+        let mut vm = Vm::new().unwrap();
 
-        assert_eq!(vm.data_stack.pop().unwrap(), Value::int(32));
+        let mut frame = vm.run_frame(main).unwrap();
+        assert_eq!(frame.stack.pop().unwrap(), Value::int(32));
     }
 
     #[test]
     fn test_jump_less() {
-        let mut obj = init_code_obj_with_pool(
+        let mut code_obj = init_code_obj_with_pool(
             bytecode![
                 Instr::LoadLit(2), // 4
                 Instr::LoadLit(2), // 4
@@ -688,17 +731,18 @@ pub mod tests {
             ],
             vec![Value::int(1), Value::int(2), Value::int(4)],
         );
-        obj.labels.insert(0, 7);
-        let mut vm = init_test_vm(&obj);
+        code_obj.labels.insert(0, 7);
+        let main = StackFrame {
+            code_obj,
+            stack: vec![Value::int(1), Value::int(2), Value::int(4), Value::int(4)],
+            instruction: 0,
+            locals: HashMap::new(),
+        };
 
-        vm.data_stack.push(Value::int(1));
-        vm.data_stack.push(Value::int(2));
-        vm.data_stack.push(Value::int(4));
-        vm.data_stack.push(Value::int(4));
+        let mut vm = Vm::new().unwrap();
 
-        vm.exec_top_frame().unwrap();
-
-        assert_eq!(vm.data_stack.pop().unwrap(), Value::int(16));
+        let mut frame = vm.run_frame(main).unwrap();
+        assert_eq!(frame.stack.pop().unwrap(), Value::int(16));
     }
 
     #[test]
@@ -717,10 +761,7 @@ pub mod tests {
 
     #[test]
     fn test_void_funccall() {
-        println!("trying to insert into db");
         let mut vm = Vm::new().unwrap();
-
-        println!("trying to insert into db");
 
         let func_b = CodeObject {
             litpool: vec![Value::int(4), Value::int(3)],
@@ -737,7 +778,6 @@ pub mod tests {
             ],
         };
 
-        println!("trying to insert into db");
         let hash = vm
             .db
             .insert_code_object_with_name(&func_b, "func_b")
@@ -759,10 +799,11 @@ pub mod tests {
             code_obj: func_a,
             locals: HashMap::new(),
             instruction: 0,
+            stack: todo!(),
         });
 
         println!("beginning vm run");
-        vm.exec_top_frame().unwrap();
+        // vm.exec_top_frame().unwrap();
 
         /*
         // Inspect stack
