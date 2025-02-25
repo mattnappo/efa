@@ -1,12 +1,14 @@
 use std::cmp::{Ord, Ordering};
 use std::collections::HashMap;
 use std::ops::{Add, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
+use std::path::Path;
 
 use anyhow::{anyhow, bail, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 
 use crate::bytecode::{BinOp, Bytecode, Instr, UnaryOp};
+use crate::db::Database;
 use crate::{Hash, HASH_SIZE};
 
 const STACK_CAP: usize = 256;
@@ -17,6 +19,7 @@ struct Vm {
     call_stack: Vec<StackFrame>,
     data_stack_cap: usize,
     call_stack_cap: usize,
+    db: Database,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +45,12 @@ struct StackFrame {
     locals: HashMap<String, Value>,
     instruction: usize,
     // maybe add some debug info like a name
+}
+
+enum Return {
+    Value(Value),
+    Void,
+    None,
 }
 
 /// A value that can be on the stack.
@@ -82,13 +91,24 @@ impl Ord for Value {
 }
 
 impl Vm {
-    pub fn new() -> Vm {
-        Vm {
+    pub fn new() -> Result<Vm> {
+        Ok(Vm {
             data_stack: Vec::new(),
             call_stack: Vec::new(),
             data_stack_cap: STACK_CAP,
             call_stack_cap: STACK_CAP,
-        }
+            db: Database::temp()?,
+        })
+    }
+
+    pub fn initialize<P: AsRef<Path>>(path: P) -> Result<Vm> {
+        Ok(Vm {
+            data_stack: Vec::new(),
+            call_stack: Vec::new(),
+            data_stack_cap: STACK_CAP,
+            call_stack_cap: STACK_CAP,
+            db: Database::open(path)?,
+        })
     }
 
     /// Execute the frame at the top of the call stack.
@@ -105,12 +125,14 @@ impl Vm {
     // TODO: pub fn exec_codeobj / exec_main
     // Wraps a code object in a frame and executes the frame
     // Need to deal with `locals` field of uninitialized local vars.
-
     fn exec_instr(&mut self, instr: &Instr) -> Result<()> {
         let frame = self.call_stack.iter_mut().last().unwrap();
         let stack = &mut self.data_stack;
 
         let mut next_instr = frame.instruction + 1;
+        let mut next_frame: Option<StackFrame> = None;
+        let mut did_return = Return::None;
+
         match instr {
             Instr::LoadArg(i) => {
                 if *i >= frame.code_obj.argcount {
@@ -146,14 +168,32 @@ impl Vm {
             Instr::Call => {
                 // Pop hash from stack
                 if let Some(Value::Hash(hash)) = stack.pop() {
-                    // find the right code object by looking up the hash in the database
-                    // construct a new stackframe
-                    // push to the vm.call_stack
+                    // Find the right code object by looking up the hash in the database
+                    let code_obj = self.db.get_code_object(&hash)?;
+
+                    // Construct a new stackframe
+                    let new_frame = StackFrame {
+                        code_obj,
+                        locals: HashMap::new(),
+                        instruction: 0,
+                    };
+
+                    next_frame = Some(new_frame);
+
+                    // handle the next instr stuff, and make a new construct for the new frame.
                 } else {
                     bail!("cannot call function: function hash not present");
                 }
             }
-            Instr::Return => {}
+            Instr::Return => {
+                // Return value is whatever is on the top of the stack
+                // If we have `return x`, then we LOAD x to push it to the top of the stack
+                did_return = if frame.code_obj.is_void {
+                    Return::Void
+                } else {
+                    Return::Value(stack.pop().unwrap())
+                }
+            }
 
             Instr::Jump(label) => next_instr = frame.code_obj.labels[label],
             Instr::JumpEq(label) => {
@@ -262,7 +302,31 @@ impl Vm {
             Instr::Nop => {}
         }
 
+        // Update program counter for this frame
         frame.instruction = next_instr;
+        println!("next instr: {:?}", frame.code_obj.code[frame.instruction]);
+        println!("updating frame PC");
+
+        // If the instruction was a call, then update the stack frame
+        if let Some(frame) = next_frame {
+            println!("pushing to call stack");
+            self.call_stack.push(frame);
+        }
+
+        // Handle a return
+        match did_return {
+            Return::Value(val) => {
+                println!("returned with value");
+                self.call_stack.pop();
+                // Push the returning function's return value onto the caller's stack
+                self.data_stack.push(val);
+            }
+            Return::Void => {
+                println!("returned from void");
+                self.call_stack.pop();
+            }
+            Return::None => {}
+        }
 
         Ok(())
     }
@@ -445,7 +509,7 @@ pub mod tests {
     }
 
     fn init_test_vm(code_obj: &CodeObject) -> Vm {
-        let mut vm = Vm::new();
+        let mut vm = Vm::new().unwrap();
 
         let frame = StackFrame {
             code_obj: code_obj.to_owned(),
@@ -512,13 +576,13 @@ pub mod tests {
 
     #[test]
     fn test_ops() {
-        let obj = init_code_obj(Bytecode::new(vec![
+        let obj = init_code_obj(bytecode![
             Instr::BinOp(BinOp::Add),
             Instr::BinOp(BinOp::Mul),
             Instr::BinOp(BinOp::Mod),
             Instr::BinOp(BinOp::Sub),
-            Instr::UnaryOp(UnaryOp::Neg),
-        ]));
+            Instr::UnaryOp(UnaryOp::Neg)
+        ]);
         let mut vm = init_test_vm(&obj);
 
         vm.data_stack.push(Value::int(5));
@@ -542,11 +606,11 @@ pub mod tests {
 
     #[test]
     fn test_jump() {
-        let mut obj = init_code_obj(Bytecode::new(vec![
+        let mut obj = init_code_obj(bytecode![
             Instr::Jump(0),
             Instr::BinOp(BinOp::Add),
-            Instr::BinOp(BinOp::Mul),
-        ]));
+            Instr::BinOp(BinOp::Mul)
+        ]);
         obj.labels.insert(0, 2);
         let mut vm = init_test_vm(&obj);
 
@@ -561,7 +625,7 @@ pub mod tests {
     #[test]
     fn test_jump_greater() {
         let mut obj = init_code_obj_with_pool(
-            Bytecode::new(vec![
+            bytecode![
                 Instr::LoadLit(2), // 4
                 Instr::LoadLit(2), // 4
                 Instr::LoadLit(2), // 4
@@ -569,8 +633,8 @@ pub mod tests {
                 Instr::LoadLit(1), // 2
                 Instr::JumpGt(0),  // False (since 1 > 2 is false)
                 Instr::BinOp(BinOp::Add),
-                Instr::BinOp(BinOp::Mul),
-            ]),
+                Instr::BinOp(BinOp::Mul)
+            ],
             vec![Value::int(1), Value::int(2), Value::int(4)],
         );
         obj.labels.insert(0, 7);
@@ -589,7 +653,7 @@ pub mod tests {
     #[test]
     fn test_jump_less() {
         let mut obj = init_code_obj_with_pool(
-            Bytecode::new(vec![
+            bytecode![
                 Instr::LoadLit(2), // 4
                 Instr::LoadLit(2), // 4
                 Instr::LoadLit(2), // 4
@@ -597,8 +661,8 @@ pub mod tests {
                 Instr::LoadLit(1), // 2
                 Instr::JumpLt(0),  // True (1 < 2)
                 Instr::BinOp(BinOp::Add),
-                Instr::BinOp(BinOp::Mul),
-            ]),
+                Instr::BinOp(BinOp::Mul)
+            ],
             vec![Value::int(1), Value::int(2), Value::int(4)],
         );
         obj.labels.insert(0, 7);
@@ -618,5 +682,73 @@ pub mod tests {
     fn test_hash_code_obj() {
         let obj = init_code_obj(Bytecode::default());
         println!("{:?}", obj.hash_str());
+    }
+
+    /* Testing function calls */
+    /*
+     1. Create a new in-mem db / vm
+     2. Create a code object B to be called and insert it into the db
+     3. Create a code object A to call B
+     4. Run A
+    */
+
+    #[test]
+    fn test_void_funccall() {
+        println!("trying to insert into db");
+        let mut vm = Vm::new().unwrap();
+
+        println!("trying to insert into db");
+
+        let func_b = CodeObject {
+            litpool: vec![Value::int(4), Value::int(3)],
+            argcount: 0,
+            is_void: true,
+            localnames: vec![],
+            labels: HashMap::new(),
+
+            code: bytecode![
+                Instr::LoadLit(0), // 4
+                Instr::LoadLit(1), // 3
+                Instr::BinOp(BinOp::Add),
+                Instr::Return
+            ],
+        };
+
+        println!("trying to insert into db");
+        let hash = vm
+            .db
+            .insert_code_object_with_name(&func_b, "func_b")
+            .unwrap();
+
+        println!("inserted into db");
+
+        let func_a = CodeObject {
+            litpool: vec![],
+            argcount: 0,
+            is_void: true,
+            localnames: vec![],
+            labels: HashMap::new(),
+
+            code: bytecode![Instr::LoadFunc(hash), Instr::Call, Instr::Return],
+        };
+
+        vm.call_stack.push(StackFrame {
+            code_obj: func_a,
+            locals: HashMap::new(),
+            instruction: 0,
+        });
+
+        println!("beginning vm run");
+        vm.exec_top_frame().unwrap();
+
+        /*
+        // Inspect stack
+        dbg!(&vm.data_stack);
+        */
+    }
+
+    #[test]
+    fn test_value_funccall() {
+        println!("ok");
     }
 }

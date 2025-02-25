@@ -8,7 +8,7 @@ use anyhow::{bail, Result};
 use rusqlite::{params, Connection, OpenFlags};
 
 #[derive(Debug)]
-struct Database {
+pub struct Database {
     path: Option<PathBuf>,
     conn: Connection,
 }
@@ -25,8 +25,14 @@ impl Database {
             conn: Connection::open(path)?,
         };
 
+        Database::build_schema(&db.conn)?;
+
+        Ok(db)
+    }
+
+    fn build_schema(conn: &Connection) -> Result<()> {
         // Create name table
-        db.conn.execute(
+        conn.execute(
             r#"
             CREATE TABLE IF NOT EXISTS names (
                 id INTEGER PRIMARY KEY,
@@ -37,11 +43,11 @@ impl Database {
         "#,
             [],
         )?;
-        db.conn
-            .execute("CREATE INDEX IF NOT EXISTS name_idx ON names (name);", [])?;
+
+        conn.execute("CREATE INDEX IF NOT EXISTS name_idx ON names (name);", [])?;
 
         // Create code object table
-        db.conn.execute(
+        conn.execute(
             r#"
             CREATE TABLE IF NOT EXISTS code_objs (
                 id INTEGER PRIMARY KEY,
@@ -52,14 +58,14 @@ impl Database {
         "#,
             [],
         )?;
-        db.conn.execute(
+        conn.execute(
             "CREATE INDEX IF NOT EXISTS hash_idx ON code_objs (hash);",
             [],
         )?;
 
         // TODO: Create type table
 
-        Ok(db)
+        Ok(())
     }
 
     /// Open an existing database.
@@ -77,10 +83,12 @@ impl Database {
 
     /// Create an in-memory database.
     pub fn temp() -> Result<Self> {
-        Ok(Self {
+        let db = Self {
             path: None,
-            conn: Connection::open_in_memory()?,
-        })
+            conn: Connection::open_in_memory().unwrap(),
+        };
+        Self::build_schema(&db.conn)?;
+        Ok(db)
     }
 
     /// Delete a database
@@ -104,7 +112,7 @@ impl Database {
         Ok(hash)
     }
 
-    pub fn insert_code_object_with_name(&self, code_obj: &CodeObject, name: &str) -> Result<()> {
+    pub fn insert_code_object_with_name(&self, code_obj: &CodeObject, name: &str) -> Result<Hash> {
         if !is_valid_name(name) {
             bail!("cannot insert code object with invalid name '{name}'");
         }
@@ -116,7 +124,7 @@ impl Database {
             params![name, hash],
         )?;
 
-        Ok(())
+        Ok(hash)
     }
 
     /// Allow multiple names to point to the same hash.
@@ -193,7 +201,7 @@ impl Database {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::bytecode::{Bytecode, Instr};
+    use crate::bytecode::Instr;
     use crate::vm::tests::{init_code_obj, init_nondet_code_obj};
 
     use super::*;
@@ -221,7 +229,7 @@ pub mod tests {
     #[test]
     fn test_insert_codeobj() {
         let db = Database::open("/tmp/test.db").unwrap();
-        let obj = init_code_obj(Bytecode::new(vec![Instr::Nop]));
+        let obj = init_code_obj(bytecode![Instr::Nop]);
 
         db.insert_code_object(&obj).unwrap();
     }
@@ -229,7 +237,7 @@ pub mod tests {
     #[test]
     fn test_get_codeobj() {
         let db = Database::open("/tmp/test.db").unwrap();
-        let obj = init_code_obj(Bytecode::new(vec![Instr::Nop]));
+        let obj = init_code_obj(bytecode![Instr::Nop]);
 
         let res = db.get_code_object(&obj.hash().unwrap()).unwrap();
         assert_eq!(res.hash().unwrap(), obj.hash().unwrap());
@@ -238,8 +246,8 @@ pub mod tests {
     #[test]
     fn test_insert_codeobj_name() {
         let db = Database::open("/tmp/test.db").unwrap();
-        let obj1 = init_code_obj(Bytecode::new(vec![]));
-        let obj2 = init_nondet_code_obj(Bytecode::new(vec![]));
+        let obj1 = init_code_obj(bytecode![]);
+        let obj2 = init_nondet_code_obj(bytecode![]);
 
         db.insert_code_object_with_name(&obj1, "random_obj")
             .unwrap();
@@ -256,7 +264,7 @@ pub mod tests {
     #[test]
     fn test_get_codeobj_name() {
         let db = Database::open("/tmp/test.db").unwrap();
-        let obj = init_code_obj(Bytecode::new(vec![]));
+        let obj = init_code_obj(bytecode![]);
         let q_obj = db.get_code_object_by_name("random_obj").unwrap();
         assert_eq!(obj.hash().unwrap(), q_obj.hash().unwrap());
     }
@@ -264,7 +272,7 @@ pub mod tests {
     #[test]
     fn test_create_alias() {
         let db = Database::open("/tmp/test.db").unwrap();
-        let hash = init_code_obj(Bytecode::new(vec![])).hash().unwrap();
+        let hash = init_code_obj(bytecode![]).hash().unwrap();
 
         db.create_alias("name_2", &hash).unwrap();
     }

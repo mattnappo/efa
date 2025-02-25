@@ -79,3 +79,22 @@ impl Deref for Bytecode {
         &self.code
     }
 }
+
+#[macro_export]
+macro_rules! bytecode {
+    ($($instr:expr),*) => {
+        $crate::bytecode::Bytecode::new(vec![$($instr),*])
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bytecode_macro() {
+        bytecode![];
+        bytecode![Instr::Nop];
+        bytecode![Instr::Nop, Instr::BinOp(BinOp::Add)];
+    }
+}
