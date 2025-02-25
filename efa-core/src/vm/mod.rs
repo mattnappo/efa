@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::ops::{Add, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
 
 use anyhow::{anyhow, bail, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 
 use crate::bytecode::{BinOp, Bytecode, Instr, UnaryOp};
@@ -12,16 +12,16 @@ use crate::{Hash, HASH_SIZE};
 const STACK_CAP: usize = 256;
 
 #[derive(Debug)]
-struct Vm<'a> {
-    data_stack: Vec<Value<'a>>,
-    call_stack: Vec<StackFrame<'a>>,
+struct Vm {
+    data_stack: Vec<Value>,
+    call_stack: Vec<StackFrame>,
     data_stack_cap: usize,
     call_stack_cap: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct CodeObject<'a> {
-    litpool: Vec<Value<'a>>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeObject {
+    litpool: Vec<Value>,
     argcount: usize,
     is_void: bool,
     localnames: Vec<String>,
@@ -33,37 +33,37 @@ struct CodeObject<'a> {
 
 /// An execution context for a code object
 #[derive(Debug, Clone)]
-struct StackFrame<'a> {
-    code_obj: &'a CodeObject<'a>,
+struct StackFrame {
+    code_obj: CodeObject, // TODO: make this a reference
     // They all start uninitialized.
     // ... Or it starts empty.
     // Will need to think
     // Also consider making it a BTreeMap (with a max cap)
-    locals: HashMap<String, Value<'a>>,
+    locals: HashMap<String, Value>,
     instruction: usize,
     // maybe add some debug info like a name
 }
 
 /// A value that can be on the stack.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-enum Value<'a> {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Value {
     I32(i32),
     String(String),
     Bool(bool),
-    Hash(&'a Hash),
+    Hash(Hash),
 }
 
-impl<'a> Value<'a> {
-    pub fn int(i: i32) -> Value<'a> {
+impl Value {
+    pub fn int(i: i32) -> Value {
         Value::I32(i)
     }
 
-    pub fn string(s: &str) -> Value<'a> {
+    pub fn string(s: &str) -> Value {
         Value::String(s.to_string())
     }
 }
 
-impl<'a> PartialOrd for Value<'a> {
+impl PartialOrd for Value {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
             (Value::I32(x), Value::I32(y)) => Some(x.cmp(&y)),
@@ -72,7 +72,7 @@ impl<'a> PartialOrd for Value<'a> {
     }
 }
 
-impl<'a> Ord for Value<'a> {
+impl Ord for Value {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             (Value::I32(x), Value::I32(y)) => x.cmp(&y),
@@ -81,8 +81,8 @@ impl<'a> Ord for Value<'a> {
     }
 }
 
-impl<'a> Vm<'a> {
-    pub fn new() -> Vm<'a> {
+impl Vm {
+    pub fn new() -> Vm {
         Vm {
             data_stack: Vec::new(),
             call_stack: Vec::new(),
@@ -93,7 +93,7 @@ impl<'a> Vm<'a> {
 
     /// Execute the frame at the top of the call stack.
     pub fn exec_top_frame(&mut self) -> Result<()> {
-        let bytecode = &self.call_stack.last().unwrap().code_obj.code;
+        let bytecode = self.call_stack.last().unwrap().code_obj.code.clone();
         while self.call_stack.last().unwrap().instruction < bytecode.len() {
             let instr = &bytecode[self.call_stack.last().unwrap().instruction];
             self.exec_instr(instr)?;
@@ -106,7 +106,7 @@ impl<'a> Vm<'a> {
     // Wraps a code object in a frame and executes the frame
     // Need to deal with `locals` field of uninitialized local vars.
 
-    fn exec_instr(&mut self, instr: &'a Instr) -> Result<()> {
+    fn exec_instr(&mut self, instr: &Instr) -> Result<()> {
         let frame = self.call_stack.iter_mut().last().unwrap();
         let stack = &mut self.data_stack;
 
@@ -140,7 +140,7 @@ impl<'a> Vm<'a> {
             }
 
             Instr::LoadFunc(hash) => {
-                stack.push(Value::<'a>::Hash(&hash));
+                stack.push(Value::Hash(*hash));
             }
 
             Instr::Call => {
@@ -268,7 +268,7 @@ impl<'a> Vm<'a> {
     }
 }
 
-impl<'a> CodeObject<'a> {
+impl CodeObject {
     pub fn hash(&self) -> Result<Hash> {
         let obj = rmp_serde::to_vec(&self)?;
         let mut hasher = Sha512::new();
@@ -284,7 +284,7 @@ impl<'a> CodeObject<'a> {
     }
 }
 
-impl<'a> Add for Value<'a> {
+impl Add for Value {
     type Output = Self;
 
     fn add(self, other: Self) -> Self {
@@ -296,7 +296,7 @@ impl<'a> Add for Value<'a> {
     }
 }
 
-impl<'a> Sub for Value<'a> {
+impl Sub for Value {
     type Output = Self;
 
     fn sub(self, other: Self) -> Self {
@@ -307,7 +307,7 @@ impl<'a> Sub for Value<'a> {
     }
 }
 
-impl<'a> Mul for Value<'a> {
+impl Mul for Value {
     type Output = Self;
 
     fn mul(self, other: Self) -> Self {
@@ -321,7 +321,7 @@ impl<'a> Mul for Value<'a> {
     }
 }
 
-impl<'a> Div for Value<'a> {
+impl Div for Value {
     type Output = Self;
 
     fn div(self, other: Self) -> Self {
@@ -332,7 +332,7 @@ impl<'a> Div for Value<'a> {
     }
 }
 
-impl<'a> Rem for Value<'a> {
+impl Rem for Value {
     type Output = Self;
 
     fn rem(self, other: Self) -> Self {
@@ -343,7 +343,7 @@ impl<'a> Rem for Value<'a> {
     }
 }
 
-impl<'a> Shl for Value<'a> {
+impl Shl for Value {
     type Output = Self;
 
     fn shl(self, other: Self) -> Self {
@@ -354,7 +354,7 @@ impl<'a> Shl for Value<'a> {
     }
 }
 
-impl<'a> Shr for Value<'a> {
+impl Shr for Value {
     type Output = Self;
 
     fn shr(self, other: Self) -> Self {
@@ -365,7 +365,7 @@ impl<'a> Shr for Value<'a> {
     }
 }
 
-impl<'a> Neg for Value<'a> {
+impl Neg for Value {
     type Output = Self;
 
     fn neg(self) -> Self {
@@ -376,7 +376,7 @@ impl<'a> Neg for Value<'a> {
     }
 }
 
-impl<'a> Not for Value<'a> {
+impl Not for Value {
     type Output = Self;
 
     fn not(self) -> Self {
@@ -387,7 +387,7 @@ impl<'a> Not for Value<'a> {
     }
 }
 
-impl<'a> Value<'a> {
+impl Value {
     pub fn and(self, other: Self) -> Self {
         match (self, other) {
             (Value::I32(x), Value::I32(y)) => Value::I32(((x != 0) && (y != 0)) as i32),
@@ -403,7 +403,7 @@ impl<'a> Value<'a> {
 pub mod tests {
     use super::*;
 
-    fn init_code_obj<'a>(code: Bytecode) -> CodeObject<'a> {
+    pub fn init_code_obj(code: Bytecode) -> CodeObject {
         CodeObject {
             litpool: vec![Value::int(5), Value::string("hello")],
             argcount: 2, // x and y
@@ -414,7 +414,7 @@ pub mod tests {
         }
     }
 
-    fn init_code_obj_with_pool<'a>(code: Bytecode, litpool: Vec<Value<'a>>) -> CodeObject<'a> {
+    fn init_code_obj_with_pool(code: Bytecode, litpool: Vec<Value>) -> CodeObject {
         CodeObject {
             litpool,
             argcount: 2, // x and y
@@ -425,11 +425,11 @@ pub mod tests {
         }
     }
 
-    fn init_test_vm<'a>(code_obj: &'a CodeObject) -> Vm<'a> {
+    fn init_test_vm(code_obj: &CodeObject) -> Vm {
         let mut vm = Vm::new();
 
         let frame = StackFrame {
-            code_obj,
+            code_obj: code_obj.to_owned(),
             locals: HashMap::from([
                 ("x".into(), Value::int(10)),
                 ("y".into(), Value::string("ok")),

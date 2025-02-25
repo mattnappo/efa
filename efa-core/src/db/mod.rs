@@ -3,8 +3,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::{vm::CodeObject, Hash};
 use anyhow::{bail, Result};
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{params, Connection, OpenFlags};
 
 #[derive(Debug)]
 struct Database {
@@ -90,12 +91,58 @@ impl Database {
         // Now self gets dropped, closing self.conn
         Ok(())
     }
+
+    pub fn insert_code_object(&self, code_obj: &CodeObject) -> Result<()> {
+        let obj = rmp_serde::to_vec(code_obj)?;
+        let hash = code_obj.hash()?;
+
+        self.conn.execute(
+            "INSERT INTO code_objs (hash, code_obj, time) VALUES (?1, ?2, CURRENT_TIMESTAMP);",
+            params![hash, obj],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn get_code_object(&self, hash: &Hash) -> Result<CodeObject> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT code_obj FROM code_objs WHERE hash = (?1);")?;
+
+        let query_result = stmt.query_map([hash], |row| {
+            let code_obj_blob: Vec<u8> = row.get(0)?;
+            Ok(rmp_serde::from_slice::<CodeObject>(&code_obj_blob))
+        })?;
+
+        let obj = match query_result.into_iter().next() {
+            Some(obj) => Ok(obj??),
+            None => bail!(
+                "query failed: no code object with hash 0x{}",
+                hex::encode(hash)
+            ),
+        };
+
+        obj
+    }
+
+    // TODO: Now must write functions for:
+    // - insert new code object into table
+    // -- optionally give it a name (something for names to point to)
+    // - lookup code object by hash (SELECT on only second table)
+    // - lookup code object by name (SELECT on JOIN both tables)
+    // -
+    // -
+    // -
 }
 
 #[cfg(test)]
 pub mod tests {
+    use crate::bytecode::{Bytecode, Instr};
+    use crate::vm::tests::init_code_obj;
+
     use super::*;
 
+    #[ignore]
     #[test]
     // Just put a test.db on the disk for out-of-band inspection
     fn put_on_disk() {
@@ -113,5 +160,22 @@ pub mod tests {
         Database::new(&path).unwrap();
         let db = Database::open(&path).unwrap();
         db.delete().unwrap();
+    }
+
+    #[test]
+    fn test_insert_codeobj() {
+        let db = Database::open("/tmp/test.db").unwrap();
+        let obj = init_code_obj(Bytecode::new(vec![Instr::Nop]));
+
+        db.insert_code_object(&obj).unwrap();
+    }
+
+    #[test]
+    fn test_get_codeobj() {
+        let db = Database::open("/tmp/test.db").unwrap();
+        let obj = init_code_obj(Bytecode::new(vec![Instr::Nop]));
+
+        let res = db.get_code_object(&obj.hash().unwrap()).unwrap();
+        assert_eq!(res.hash().unwrap(), obj.hash().unwrap());
     }
 }
