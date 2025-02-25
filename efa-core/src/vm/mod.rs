@@ -134,10 +134,16 @@ impl Vm {
     fn exec(&mut self) -> Result<i32> {
         let mut status_code = 0;
 
+        // println!("{:#?}", self);
+
         while !self.call_stack.is_empty() {
             let l = self.call_stack.len();
             let frame = &mut self.call_stack[l - 1];
             let stack = &mut frame.stack;
+            if frame.instruction >= frame.code_obj.code.len() {
+                // Handle the case of a forgotten return statement
+                break;
+            }
             let instr = frame.code_obj.code[frame.instruction].clone();
             let mut next_instr_ptr = frame.instruction + 1; // Default
 
@@ -535,12 +541,16 @@ pub mod tests {
         }
     }
 
-    pub fn init_frame(code: Bytecode) -> StackFrame {
+    fn init_frame(code: Bytecode) -> StackFrame {
         let code_obj = init_code_obj(code);
         StackFrame {
             code_obj,
             stack: Vec::new(),
-            locals: HashMap::new(),
+            locals: HashMap::from([
+                ("x".into(), Value::int(10)),
+                ("y".into(), Value::string("ok")),
+                ("z".into(), Value::int(64)),
+            ]),
             instruction: 0,
         }
     }
@@ -594,7 +604,7 @@ pub mod tests {
 
     #[test]
     fn test_load_arg() {
-        let main = init_frame(bytecode![Instr::LoadArg(0), Instr::LoadArg(1)]);
+        let main = init_frame(bytecode![Instr::LoadArg(1), Instr::LoadArg(0)]);
         let mut vm = Vm::new().unwrap();
 
         let mut frame = vm.run_frame(main).unwrap();
