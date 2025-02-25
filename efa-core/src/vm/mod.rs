@@ -15,7 +15,6 @@ const STACK_CAP: usize = 256;
 
 #[derive(Debug)]
 struct Vm {
-    data_stack: Vec<Value>,
     call_stack: Vec<StackFrame>,
     data_stack_cap: usize,
     call_stack_cap: usize,
@@ -42,6 +41,7 @@ struct StackFrame {
     // ... Or it starts empty.
     // Will need to think
     // Also consider making it a BTreeMap (with a max cap)
+    stack: Vec<Value>,
     locals: HashMap<String, Value>,
     instruction: usize,
     // maybe add some debug info like a name
@@ -93,7 +93,6 @@ impl Ord for Value {
 impl Vm {
     pub fn new() -> Result<Vm> {
         Ok(Vm {
-            data_stack: Vec::new(),
             call_stack: Vec::new(),
             data_stack_cap: STACK_CAP,
             call_stack_cap: STACK_CAP,
@@ -103,7 +102,6 @@ impl Vm {
 
     pub fn initialize<P: AsRef<Path>>(path: P) -> Result<Vm> {
         Ok(Vm {
-            data_stack: Vec::new(),
             call_stack: Vec::new(),
             data_stack_cap: STACK_CAP,
             call_stack_cap: STACK_CAP,
@@ -111,224 +109,258 @@ impl Vm {
         })
     }
 
-    /// Execute the frame at the top of the call stack.
-    pub fn exec_top_frame(&mut self) -> Result<()> {
-        let bytecode = self.call_stack.last().unwrap().code_obj.code.clone();
-        while self.call_stack.last().unwrap().instruction < bytecode.len() {
-            let instr = &bytecode[self.call_stack.last().unwrap().instruction];
-            self.exec_instr(instr)?;
-        }
+    /// Return exit code
+    pub fn run_main_function(&mut self, code: &CodeObject) -> Result<i32> {
+        let main = StackFrame {
+            code_obj: code.clone(),
+            stack: Vec::new(),
+            locals: HashMap::new(),
+            instruction: 0,
+        };
+        self.call_stack.push(main);
+        self.exec()
+    }
 
-        Ok(())
+    /// Run the given frame and return the final state of the frame.
+    /// Mainly used for debugging.
+    fn run_frame(&mut self, frame: StackFrame) -> Result<StackFrame> {
+        self.call_stack.push(frame);
+        self.exec()?;
+        Ok(self.call_stack.last().unwrap().clone())
     }
 
     // TODO: pub fn exec_codeobj / exec_main
     // Wraps a code object in a frame and executes the frame
     // Need to deal with `locals` field of uninitialized local vars.
-    fn exec_instr(&mut self, instr: &Instr) -> Result<()> {
-        let frame = self.call_stack.iter_mut().last().unwrap();
-        let stack = &mut self.data_stack;
+    fn exec(&mut self) -> Result<i32> {
+        let mut status_code = 0;
 
-        let mut next_instr = frame.instruction + 1;
-        let mut next_frame: Option<StackFrame> = None;
-        let mut did_return = Return::None;
+        while !self.call_stack.is_empty() {
+            let call_depth = self.call_stack.len();
+            let frame = &mut self.call_stack[call_depth - 1];
+            let stack = &mut frame.stack;
+            if frame.instruction >= frame.code_obj.code.len() {
+                // Handle the case of a forgotten return statement
+                break;
+            }
+            let instr = frame.code_obj.code[frame.instruction].clone();
+            let mut next_instr_ptr = frame.instruction + 1; // Default
 
-        match instr {
-            Instr::LoadArg(i) => {
-                if *i >= frame.code_obj.argcount {
-                    bail!("argument index {i} out of bounds");
+            let mut return_value: Return = Return::None;
+            let mut next_frame: Option<StackFrame> = None;
+
+            match instr {
+                Instr::LoadArg(i) => {
+                    if i >= frame.code_obj.argcount {
+                        bail!("argument index {i} out of bounds");
+                    }
+                    let arg_name = &frame.code_obj.localnames[i];
+                    stack.push(frame.locals[arg_name].clone());
                 }
-                let arg_name = &frame.code_obj.localnames[*i];
-                stack.push(frame.locals[arg_name].clone());
-            }
-            Instr::LoadLocal(i) => {
-                let k = i + frame.code_obj.argcount;
-                if k >= frame.code_obj.localnames.len() {
-                    bail!("local index {k} out of bounds");
+                Instr::LoadLocal(i) => {
+                    let k = i + frame.code_obj.argcount;
+                    if k >= frame.code_obj.localnames.len() {
+                        bail!("local index {k} out of bounds");
+                    }
+                    let arg_name = &frame.code_obj.localnames[k];
+                    stack.push(frame.locals[arg_name].clone());
                 }
-                let arg_name = &frame.code_obj.localnames[k];
-                stack.push(frame.locals[arg_name].clone());
-            }
-            Instr::LoadLit(i) => {
-                stack.push(frame.code_obj.litpool[*i].clone());
-            }
-            Instr::StoreLocal(i) => {
-                let k = i + frame.code_obj.argcount;
-                let arg_name = &frame.code_obj.localnames[k];
-                frame.locals.insert(arg_name.clone(), stack.pop().unwrap());
-            }
-            Instr::Pop => {
-                stack.pop();
-            }
+                Instr::LoadLit(i) => {
+                    stack.push(frame.code_obj.litpool[i].clone());
+                }
+                Instr::StoreLocal(i) => {
+                    let k = i + frame.code_obj.argcount;
+                    let arg_name = &frame.code_obj.localnames[k];
+                    frame.locals.insert(arg_name.clone(), stack.pop().unwrap());
+                }
+                Instr::Pop => {
+                    stack.pop();
+                }
 
-            Instr::LoadFunc(hash) => {
-                stack.push(Value::Hash(*hash));
-            }
+                Instr::LoadFunc(hash) => {
+                    stack.push(Value::Hash(hash));
+                }
 
-            Instr::Call => {
-                // Pop hash from stack
-                if let Some(Value::Hash(hash)) = stack.pop() {
-                    // Find the right code object by looking up the hash in the database
-                    let code_obj = self.db.get_code_object(&hash)?;
+                Instr::Call => {
+                    // Pop hash from stack
+                    if let Some(Value::Hash(hash)) = stack.pop() {
+                        // Find the right code object by looking up the hash in the database
+                        let code_obj = self.db.get_code_object(&hash)?;
 
-                    // Construct a new stackframe
-                    let new_frame = StackFrame {
-                        code_obj,
-                        locals: HashMap::new(),
-                        instruction: 0,
+                        // Construct a new stackframe
+                        let new_frame = StackFrame {
+                            stack: Vec::new(),
+                            code_obj,
+                            locals: HashMap::new(),
+                            instruction: 0,
+                        };
+
+                        next_frame = Some(new_frame);
+                    } else {
+                        bail!("cannot call function: function hash not present");
+                    }
+                }
+
+                Instr::Return => {
+                    // Return value is whatever is on the top of the stack
+                    // If we have `return x`, then we (the compiler) LOAD x to push it to the top of the stack
+                    if frame.code_obj.is_void {
+                        return_value = Return::Void;
+                    } else {
+                        // Get the return value from the top of current frame's stack
+                        if stack.is_empty() {
+                            bail!("non-void function requires a return value on the stack");
+                        } else {
+                            return_value = Return::Value(stack.pop().unwrap());
+                        }
                     };
-
-                    next_frame = Some(new_frame);
-
-                    // handle the next instr stuff, and make a new construct for the new frame.
-                } else {
-                    bail!("cannot call function: function hash not present");
-                }
-            }
-            Instr::Return => {
-                // Return value is whatever is on the top of the stack
-                // If we have `return x`, then we LOAD x to push it to the top of the stack
-                did_return = if frame.code_obj.is_void {
-                    Return::Void
-                } else {
-                    Return::Value(stack.pop().unwrap())
-                }
-            }
-
-            Instr::Jump(label) => next_instr = frame.code_obj.labels[label],
-            Instr::JumpEq(label) => {
-                if stack.len() < 2 {
-                    bail!("cannot perform comparison: stack underflow");
                 }
 
-                let rhs = stack.pop().unwrap();
-                let lhs = stack.pop().unwrap();
+                Instr::Jump(label) => next_instr_ptr = frame.code_obj.labels[&label],
+                Instr::JumpEq(label) => {
+                    if stack.len() < 2 {
+                        bail!("cannot perform comparison: stack underflow");
+                    }
 
-                if lhs == rhs {
-                    next_instr = frame.code_obj.labels[label];
+                    let rhs = stack.pop().unwrap();
+                    let lhs = stack.pop().unwrap();
+
+                    if lhs == rhs {
+                        next_instr_ptr = frame.code_obj.labels[&label];
+                    }
                 }
-            }
-            Instr::JumpGt(label) => {
-                if stack.len() < 2 {
-                    bail!("cannot perform comparison: stack underflow");
+                Instr::JumpGt(label) => {
+                    if stack.len() < 2 {
+                        bail!("cannot perform comparison: stack underflow");
+                    }
+
+                    let rhs = stack.pop().unwrap();
+                    let lhs = stack.pop().unwrap();
+
+                    if lhs > rhs {
+                        next_instr_ptr = frame.code_obj.labels[&label];
+                    }
+                }
+                Instr::JumpGe(label) => {
+                    if stack.len() < 2 {
+                        bail!("cannot perform comparison: stack underflow");
+                    }
+
+                    let rhs = stack.pop().unwrap();
+                    let lhs = stack.pop().unwrap();
+
+                    if lhs >= rhs {
+                        next_instr_ptr = frame.code_obj.labels[&label];
+                    }
+                }
+                Instr::JumpLt(label) => {
+                    if stack.len() < 2 {
+                        bail!("cannot perform comparison: stack underflow");
+                    }
+
+                    let rhs = stack.pop().unwrap();
+                    let lhs = stack.pop().unwrap();
+
+                    if lhs < rhs {
+                        next_instr_ptr = frame.code_obj.labels[&label];
+                    }
+                }
+                Instr::JumpLe(label) => {
+                    if stack.len() < 2 {
+                        bail!("cannot perform comparison: stack underflow");
+                    }
+
+                    let rhs = stack.pop().unwrap();
+                    let lhs = stack.pop().unwrap();
+
+                    if lhs <= rhs {
+                        next_instr_ptr = frame.code_obj.labels[&label];
+                    }
                 }
 
-                let rhs = stack.pop().unwrap();
-                let lhs = stack.pop().unwrap();
+                Instr::BinOp(op) => {
+                    if stack.len() < 2 {
+                        bail!("cannot perform binary operation: stack underflow");
+                    }
 
-                if lhs > rhs {
-                    next_instr = frame.code_obj.labels[label];
-                }
-            }
-            Instr::JumpGe(label) => {
-                if stack.len() < 2 {
-                    bail!("cannot perform comparison: stack underflow");
-                }
+                    let rhs = stack.pop().unwrap();
+                    let lhs = stack.pop().unwrap();
 
-                let rhs = stack.pop().unwrap();
-                let lhs = stack.pop().unwrap();
-
-                if lhs >= rhs {
-                    next_instr = frame.code_obj.labels[label];
+                    match op {
+                        BinOp::Add => stack.push(lhs + rhs),
+                        BinOp::Mul => stack.push(lhs * rhs),
+                        BinOp::Div => stack.push(lhs / rhs),
+                        BinOp::Sub => stack.push(lhs - rhs),
+                        BinOp::Mod => stack.push(lhs % rhs),
+                        BinOp::Shl => stack.push(lhs << rhs),
+                        BinOp::Shr => stack.push(lhs >> rhs),
+                        BinOp::And => stack.push(lhs.and(rhs)),
+                        BinOp::Or => stack.push(lhs.and(rhs)),
+                    }
                 }
-            }
-            Instr::JumpLt(label) => {
-                if stack.len() < 2 {
-                    bail!("cannot perform comparison: stack underflow");
-                }
+                Instr::UnaryOp(op) => {
+                    if stack.is_empty() {
+                        bail!("cannot perform binary operation: stack underflow");
+                    }
+                    let arg = stack.pop().unwrap();
 
-                let rhs = stack.pop().unwrap();
-                let lhs = stack.pop().unwrap();
-
-                if lhs < rhs {
-                    next_instr = frame.code_obj.labels[label];
-                }
-            }
-            Instr::JumpLe(label) => {
-                if stack.len() < 2 {
-                    bail!("cannot perform comparison: stack underflow");
+                    match op {
+                        UnaryOp::Not => stack.push(!arg),
+                        UnaryOp::Neg => stack.push(-arg),
+                    }
                 }
 
-                let rhs = stack.pop().unwrap();
-                let lhs = stack.pop().unwrap();
+                Instr::LoadArray => {}
+                Instr::StoreArray => {}
+                Instr::MakeArray => {}
+                Instr::MakeSlice => {}
+                Instr::StoreSlice => {}
 
-                if lhs <= rhs {
-                    next_instr = frame.code_obj.labels[label];
-                }
-            }
+                Instr::LoadField => {}
+                Instr::StoreField => {}
+                Instr::MakeStruct => {}
 
-            Instr::BinOp(op) => {
-                if stack.len() < 2 {
-                    bail!("cannot perform binary operation: stack underflow");
-                }
-
-                let rhs = stack.pop().unwrap();
-                let lhs = stack.pop().unwrap();
-
-                match op {
-                    BinOp::Add => stack.push(lhs + rhs),
-                    BinOp::Mul => stack.push(lhs * rhs),
-                    BinOp::Div => stack.push(lhs / rhs),
-                    BinOp::Sub => stack.push(lhs - rhs),
-                    BinOp::Mod => stack.push(lhs % rhs),
-                    BinOp::Shl => stack.push(lhs << rhs),
-                    BinOp::Shr => stack.push(lhs >> rhs),
-                    BinOp::And => stack.push(lhs.and(rhs)),
-                    BinOp::Or => stack.push(lhs.and(rhs)),
-                }
-            }
-            Instr::UnaryOp(op) => {
-                if stack.is_empty() {
-                    bail!("cannot perform binary operation: stack underflow");
-                }
-                let arg = stack.pop().unwrap();
-
-                match op {
-                    UnaryOp::Not => stack.push(!arg),
-                    UnaryOp::Neg => stack.push(-arg),
-                }
+                Instr::Nop => {}
             }
 
-            Instr::LoadArray => {}
-            Instr::StoreArray => {}
-            Instr::MakeArray => {}
-            Instr::MakeSlice => {}
-            Instr::StoreSlice => {}
+            // Update program counter for this frame
+            frame.instruction = next_instr_ptr;
 
-            Instr::LoadField => {}
-            Instr::StoreField => {}
-            Instr::MakeStruct => {}
+            // If the instruction was a call, then update the stack frame
+            if let Some(frame) = next_frame {
+                println!("pushing to call stack");
+                self.call_stack.push(frame);
+            }
 
-            Instr::Nop => {}
+            // Handle a return
+            match return_value {
+                Return::Value(val) => {
+                    // If the main function returns
+                    if call_depth == 1 {
+                        // Note: this case keeps the main function's frame around
+                        if let Value::I32(code) = val {
+                            status_code = code;
+                        } else {
+                            bail!("main function can only return integers");
+                        }
+                        break;
+                    }
+
+                    println!("returned with value");
+                    self.call_stack.pop();
+                    // Push the returning function's return value onto the caller's stack
+                    self.call_stack[call_depth - 2].stack.push(val);
+                }
+                Return::Void => {
+                    println!("returned from void");
+                    self.call_stack.pop();
+                }
+                // Instruction was not a return
+                Return::None => {}
+            }
         }
 
-        // Update program counter for this frame
-        frame.instruction = next_instr;
-        println!("next instr: {:?}", frame.code_obj.code[frame.instruction]);
-        println!("updating frame PC");
-
-        // If the instruction was a call, then update the stack frame
-        if let Some(frame) = next_frame {
-            println!("pushing to call stack");
-            self.call_stack.push(frame);
-        }
-
-        // Handle a return
-        match did_return {
-            Return::Value(val) => {
-                println!("returned with value");
-                self.call_stack.pop();
-                // Push the returning function's return value onto the caller's stack
-                self.data_stack.push(val);
-            }
-            Return::Void => {
-                println!("returned from void");
-                self.call_stack.pop();
-            }
-            Return::None => {}
-        }
-
-        Ok(())
+        Ok(status_code)
     }
 }
 
@@ -480,6 +512,20 @@ pub mod tests {
         }
     }
 
+    fn init_frame(code: Bytecode) -> StackFrame {
+        let code_obj = init_code_obj(code);
+        StackFrame {
+            code_obj,
+            stack: Vec::new(),
+            locals: HashMap::from([
+                ("x".into(), Value::int(10)),
+                ("y".into(), Value::string("ok")),
+                ("z".into(), Value::int(64)),
+            ]),
+            instruction: 0,
+        }
+    }
+
     pub fn init_nondet_code_obj(code: Bytecode) -> CodeObject {
         let s: String = rand::rng()
             .sample_iter(&Alphanumeric)
@@ -512,6 +558,7 @@ pub mod tests {
         let mut vm = Vm::new().unwrap();
 
         let frame = StackFrame {
+            stack: Vec::new(),
             code_obj: code_obj.to_owned(),
             locals: HashMap::from([
                 ("x".into(), Value::int(10)),
@@ -528,70 +575,68 @@ pub mod tests {
 
     #[test]
     fn test_load_arg() {
-        let obj = init_code_obj(Bytecode::default());
-        let mut vm = init_test_vm(&obj);
+        let main = init_frame(bytecode![Instr::LoadArg(1), Instr::LoadArg(0)]);
+        let mut vm = Vm::new().unwrap();
 
-        vm.exec_instr(&Instr::LoadArg(0)).unwrap();
-        let tos = vm.data_stack.pop().unwrap();
+        let mut frame = vm.run_frame(main).unwrap();
+        let tos = frame.stack.pop().unwrap();
         assert!(matches!(tos, Value::I32(10)));
-
-        vm.exec_instr(&Instr::LoadArg(1)).unwrap();
-        let tos = vm.data_stack.pop().unwrap();
+        let tos = frame.stack.pop().unwrap();
         assert!(matches!(tos, Value::String(ref s) if s == "ok"));
     }
 
     #[test]
     fn test_load_local() {
-        let obj = init_code_obj(Bytecode::default());
-        let mut vm = init_test_vm(&obj);
+        let main = init_frame(bytecode![Instr::LoadLocal(0)]);
+        let mut vm = Vm::new().unwrap();
 
-        vm.exec_instr(&Instr::LoadLocal(0)).unwrap();
-        let tos = vm.data_stack.pop().unwrap();
+        let mut frame = vm.run_frame(main).unwrap();
+        let tos = frame.stack.pop().unwrap();
         assert!(matches!(tos, Value::I32(64)));
     }
 
     #[test]
     fn test_load_lit() {
-        let obj = init_code_obj(Bytecode::default());
-        let mut vm = init_test_vm(&obj);
+        let main = init_frame(bytecode![Instr::LoadLit(1)]);
+        let mut vm = Vm::new().unwrap();
 
-        vm.exec_instr(&Instr::LoadLit(1)).unwrap();
-        let tos = vm.data_stack.pop().unwrap();
+        let mut frame = vm.run_frame(main).unwrap();
+        let tos = frame.stack.pop().unwrap();
         assert!(matches!(tos, Value::String(ref s) if s == "hello"));
     }
 
     #[test]
     fn test_store_local() {
-        let obj = init_code_obj(Bytecode::default());
-        let mut vm = init_test_vm(&obj);
+        let mut main = init_frame(bytecode![Instr::StoreLocal(0)]);
+        let mut vm = Vm::new().unwrap();
 
         let v = Value::I32(100);
-        vm.data_stack.push(v.clone());
-        vm.exec_instr(&Instr::StoreLocal(0)).unwrap();
+        main.stack.push(v.clone());
+
+        let frame = vm.run_frame(main).unwrap();
 
         // Check
-        let frame = vm.call_stack.iter().last().unwrap();
         assert_eq!(frame.locals.get("z".into()).unwrap().to_owned(), v);
     }
 
     #[test]
     fn test_ops() {
-        let obj = init_code_obj(bytecode![
+        let mut main = init_frame(bytecode![
             Instr::BinOp(BinOp::Add),
             Instr::BinOp(BinOp::Mul),
             Instr::BinOp(BinOp::Mod),
             Instr::BinOp(BinOp::Sub),
             Instr::UnaryOp(UnaryOp::Neg)
         ]);
-        let mut vm = init_test_vm(&obj);
+        let mut vm = Vm::new().unwrap();
 
-        vm.data_stack.push(Value::int(5));
-        vm.data_stack.push(Value::int(4));
-        vm.data_stack.push(Value::int(6));
-        vm.data_stack.push(Value::int(3));
-        vm.data_stack.push(Value::int(2));
+        main.stack.push(Value::int(5));
+        main.stack.push(Value::int(4));
+        main.stack.push(Value::int(6));
+        main.stack.push(Value::int(3));
+        main.stack.push(Value::int(2));
 
-        vm.exec_top_frame().unwrap();
+        let mut frame = vm.run_frame(main).unwrap();
 
         // 3 + 2
         // 6 * 5
@@ -599,32 +644,32 @@ pub mod tests {
         // 5 - 4
         // -1
         assert_eq!(
-            vm.data_stack.pop().unwrap(),
+            frame.stack.pop().unwrap(),
             Value::int(-(5 - (4 % (6 * (3 + 2)))))
         );
     }
 
     #[test]
     fn test_jump() {
-        let mut obj = init_code_obj(bytecode![
+        let mut main = init_frame(bytecode![
             Instr::Jump(0),
             Instr::BinOp(BinOp::Add),
             Instr::BinOp(BinOp::Mul)
         ]);
-        obj.labels.insert(0, 2);
-        let mut vm = init_test_vm(&obj);
+        main.code_obj.labels.insert(0, 2);
+        let mut vm = Vm::new().unwrap();
 
-        vm.data_stack.push(Value::int(5));
-        vm.data_stack.push(Value::int(4));
+        main.stack.push(Value::int(5));
+        main.stack.push(Value::int(4));
 
-        vm.exec_top_frame().unwrap();
+        let mut frame = vm.run_frame(main).unwrap();
 
-        assert_eq!(vm.data_stack.pop().unwrap(), Value::int(20));
+        assert_eq!(frame.stack.pop().unwrap(), Value::int(20));
     }
 
     #[test]
     fn test_jump_greater() {
-        let mut obj = init_code_obj_with_pool(
+        let mut code_obj = init_code_obj_with_pool(
             bytecode![
                 Instr::LoadLit(2), // 4
                 Instr::LoadLit(2), // 4
@@ -637,22 +682,24 @@ pub mod tests {
             ],
             vec![Value::int(1), Value::int(2), Value::int(4)],
         );
-        obj.labels.insert(0, 7);
-        let mut vm = init_test_vm(&obj);
+        code_obj.labels.insert(0, 7);
 
-        vm.data_stack.push(Value::int(1));
-        vm.data_stack.push(Value::int(2));
-        vm.data_stack.push(Value::int(4));
-        vm.data_stack.push(Value::int(4));
+        let main = StackFrame {
+            code_obj,
+            stack: vec![Value::int(1), Value::int(2), Value::int(4), Value::int(4)],
+            instruction: 0,
+            locals: HashMap::new(),
+        };
 
-        vm.exec_top_frame().unwrap();
+        let mut vm = Vm::new().unwrap();
 
-        assert_eq!(vm.data_stack.pop().unwrap(), Value::int(32));
+        let mut frame = vm.run_frame(main).unwrap();
+        assert_eq!(frame.stack.pop().unwrap(), Value::int(32));
     }
 
     #[test]
     fn test_jump_less() {
-        let mut obj = init_code_obj_with_pool(
+        let mut code_obj = init_code_obj_with_pool(
             bytecode![
                 Instr::LoadLit(2), // 4
                 Instr::LoadLit(2), // 4
@@ -665,17 +712,18 @@ pub mod tests {
             ],
             vec![Value::int(1), Value::int(2), Value::int(4)],
         );
-        obj.labels.insert(0, 7);
-        let mut vm = init_test_vm(&obj);
+        code_obj.labels.insert(0, 7);
+        let main = StackFrame {
+            code_obj,
+            stack: vec![Value::int(1), Value::int(2), Value::int(4), Value::int(4)],
+            instruction: 0,
+            locals: HashMap::new(),
+        };
 
-        vm.data_stack.push(Value::int(1));
-        vm.data_stack.push(Value::int(2));
-        vm.data_stack.push(Value::int(4));
-        vm.data_stack.push(Value::int(4));
+        let mut vm = Vm::new().unwrap();
 
-        vm.exec_top_frame().unwrap();
-
-        assert_eq!(vm.data_stack.pop().unwrap(), Value::int(16));
+        let mut frame = vm.run_frame(main).unwrap();
+        assert_eq!(frame.stack.pop().unwrap(), Value::int(16));
     }
 
     #[test]
@@ -693,11 +741,53 @@ pub mod tests {
     */
 
     #[test]
-    fn test_void_funccall() {
-        println!("trying to insert into db");
+    fn test_main_return_code() {
         let mut vm = Vm::new().unwrap();
 
-        println!("trying to insert into db");
+        let func_b = CodeObject {
+            litpool: vec![Value::int(4), Value::int(3)],
+            argcount: 0,
+            is_void: false,
+            localnames: vec![],
+            labels: HashMap::new(),
+
+            code: bytecode![
+                Instr::LoadLit(0), // 4
+                Instr::LoadLit(1), // 3
+                Instr::BinOp(BinOp::Add),
+                Instr::Return
+            ],
+        };
+
+        let hash = vm
+            .db
+            .insert_code_object_with_name(&func_b, "func_b")
+            .unwrap();
+
+        let func_a = CodeObject {
+            litpool: vec![Value::I32(10)],
+            argcount: 0,
+            is_void: false,
+            localnames: vec![],
+            labels: HashMap::new(),
+
+            code: bytecode![
+                Instr::LoadFunc(hash),
+                Instr::Call,
+                Instr::LoadLit(0),
+                Instr::BinOp(BinOp::Mul),
+                Instr::Return
+            ],
+        };
+
+        let code = vm.run_main_function(&func_a).unwrap();
+
+        assert_eq!(code, 70);
+    }
+
+    #[test]
+    fn test_void_funccall() {
+        let mut vm = Vm::new().unwrap();
 
         let func_b = CodeObject {
             litpool: vec![Value::int(4), Value::int(3)],
@@ -714,13 +804,10 @@ pub mod tests {
             ],
         };
 
-        println!("trying to insert into db");
         let hash = vm
             .db
             .insert_code_object_with_name(&func_b, "func_b")
             .unwrap();
-
-        println!("inserted into db");
 
         let func_a = CodeObject {
             litpool: vec![],
@@ -732,23 +819,47 @@ pub mod tests {
             code: bytecode![Instr::LoadFunc(hash), Instr::Call, Instr::Return],
         };
 
-        vm.call_stack.push(StackFrame {
-            code_obj: func_a,
-            locals: HashMap::new(),
-            instruction: 0,
-        });
+        let code = vm.run_main_function(&func_a).unwrap();
 
-        println!("beginning vm run");
-        vm.exec_top_frame().unwrap();
-
-        /*
-        // Inspect stack
-        dbg!(&vm.data_stack);
-        */
+        assert_eq!(code, 0);
     }
 
     #[test]
-    fn test_value_funccall() {
-        println!("ok");
+    fn test_main_returns() {
+        let mut vm = Vm::new().unwrap();
+        let func = CodeObject {
+            litpool: vec![],
+            argcount: 0,
+            is_void: false,
+            localnames: vec![],
+            labels: HashMap::new(),
+
+            code: bytecode![Instr::Return],
+        };
+        assert!(vm.run_main_function(&func).is_err());
+
+        let func = CodeObject {
+            litpool: vec![Value::string("break")],
+            argcount: 0,
+            is_void: false,
+            localnames: vec![],
+            labels: HashMap::new(),
+
+            code: bytecode![Instr::LoadLit(0), Instr::Return],
+        };
+
+        assert!(vm.run_main_function(&func).is_err());
+
+        let func = CodeObject {
+            litpool: vec![Value::I32(0)],
+            argcount: 0,
+            is_void: false,
+            localnames: vec![],
+            labels: HashMap::new(),
+
+            code: bytecode![Instr::LoadLit(0), Instr::Return],
+        };
+
+        assert_eq!(vm.run_main_function(&func).unwrap(), 0);
     }
 }
