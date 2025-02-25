@@ -15,7 +15,6 @@ const STACK_CAP: usize = 256;
 
 #[derive(Debug)]
 struct Vm {
-    data_stack: Vec<Value>,
     call_stack: Vec<StackFrame>,
     data_stack_cap: usize,
     call_stack_cap: usize,
@@ -42,6 +41,7 @@ struct StackFrame {
     // ... Or it starts empty.
     // Will need to think
     // Also consider making it a BTreeMap (with a max cap)
+    stack: Vec<Value>,
     locals: HashMap<String, Value>,
     instruction: usize,
     // maybe add some debug info like a name
@@ -93,7 +93,6 @@ impl Ord for Value {
 impl Vm {
     pub fn new() -> Result<Vm> {
         Ok(Vm {
-            data_stack: Vec::new(),
             call_stack: Vec::new(),
             data_stack_cap: STACK_CAP,
             call_stack_cap: STACK_CAP,
@@ -103,7 +102,6 @@ impl Vm {
 
     pub fn initialize<P: AsRef<Path>>(path: P) -> Result<Vm> {
         Ok(Vm {
-            data_stack: Vec::new(),
             call_stack: Vec::new(),
             data_stack_cap: STACK_CAP,
             call_stack_cap: STACK_CAP,
@@ -111,224 +109,248 @@ impl Vm {
         })
     }
 
-    /// Execute the frame at the top of the call stack.
-    pub fn exec_top_frame(&mut self) -> Result<()> {
-        let bytecode = self.call_stack.last().unwrap().code_obj.code.clone();
-        while self.call_stack.last().unwrap().instruction < bytecode.len() {
-            let instr = &bytecode[self.call_stack.last().unwrap().instruction];
-            self.exec_instr(instr)?;
-        }
-
-        Ok(())
+    /// Return exit code
+    pub fn run_main_function(&mut self, code: &CodeObject) -> Result<i32> {
+        let main = StackFrame {
+            code_obj: code.clone(),
+            stack: Vec::new(),
+            locals: HashMap::new(),
+            instruction: 0,
+        };
+        self.call_stack.push(main);
+        self.exec()
     }
 
     // TODO: pub fn exec_codeobj / exec_main
     // Wraps a code object in a frame and executes the frame
     // Need to deal with `locals` field of uninitialized local vars.
-    fn exec_instr(&mut self, instr: &Instr) -> Result<()> {
-        let frame = self.call_stack.iter_mut().last().unwrap();
-        let stack = &mut self.data_stack;
+    fn exec(&mut self) -> Result<i32> {
+        let mut status_code = 0;
 
-        let mut next_instr = frame.instruction + 1;
-        let mut next_frame: Option<StackFrame> = None;
-        let mut did_return = Return::None;
+        loop {
+            let call_stack = &mut self.call_stack;
+            let frame = call_stack.iter_mut().last().unwrap();
 
-        match instr {
-            Instr::LoadArg(i) => {
-                if *i >= frame.code_obj.argcount {
-                    bail!("argument index {i} out of bounds");
+            let stack = &mut frame.stack;
+            let instr = &frame.code_obj.code[frame.instruction];
+
+            let mut next_instr = frame.instruction + 1; // Default
+
+            match instr {
+                Instr::LoadArg(i) => {
+                    if *i >= frame.code_obj.argcount {
+                        bail!("argument index {i} out of bounds");
+                    }
+                    let arg_name = &frame.code_obj.localnames[*i];
+                    stack.push(frame.locals[arg_name].clone());
                 }
-                let arg_name = &frame.code_obj.localnames[*i];
-                stack.push(frame.locals[arg_name].clone());
-            }
-            Instr::LoadLocal(i) => {
-                let k = i + frame.code_obj.argcount;
-                if k >= frame.code_obj.localnames.len() {
-                    bail!("local index {k} out of bounds");
+                Instr::LoadLocal(i) => {
+                    let k = i + frame.code_obj.argcount;
+                    if k >= frame.code_obj.localnames.len() {
+                        bail!("local index {k} out of bounds");
+                    }
+                    let arg_name = &frame.code_obj.localnames[k];
+                    stack.push(frame.locals[arg_name].clone());
                 }
-                let arg_name = &frame.code_obj.localnames[k];
-                stack.push(frame.locals[arg_name].clone());
-            }
-            Instr::LoadLit(i) => {
-                stack.push(frame.code_obj.litpool[*i].clone());
-            }
-            Instr::StoreLocal(i) => {
-                let k = i + frame.code_obj.argcount;
-                let arg_name = &frame.code_obj.localnames[k];
-                frame.locals.insert(arg_name.clone(), stack.pop().unwrap());
-            }
-            Instr::Pop => {
-                stack.pop();
-            }
+                Instr::LoadLit(i) => {
+                    stack.push(frame.code_obj.litpool[*i].clone());
+                }
+                Instr::StoreLocal(i) => {
+                    let k = i + frame.code_obj.argcount;
+                    let arg_name = &frame.code_obj.localnames[k];
+                    frame.locals.insert(arg_name.clone(), stack.pop().unwrap());
+                }
+                Instr::Pop => {
+                    stack.pop();
+                }
 
-            Instr::LoadFunc(hash) => {
-                stack.push(Value::Hash(*hash));
-            }
+                Instr::LoadFunc(hash) => {
+                    stack.push(Value::Hash(*hash));
+                }
 
-            Instr::Call => {
-                // Pop hash from stack
-                if let Some(Value::Hash(hash)) = stack.pop() {
-                    // Find the right code object by looking up the hash in the database
-                    let code_obj = self.db.get_code_object(&hash)?;
+                Instr::Call => {
+                    // Pop hash from stack
+                    if let Some(Value::Hash(hash)) = stack.pop() {
+                        // Find the right code object by looking up the hash in the database
+                        let code_obj = self.db.get_code_object(&hash)?;
 
-                    // Construct a new stackframe
-                    let new_frame = StackFrame {
-                        code_obj,
-                        locals: HashMap::new(),
-                        instruction: 0,
+                        // Construct a new stackframe
+                        let new_frame = StackFrame {
+                            stack: Vec::new(),
+                            code_obj,
+                            locals: HashMap::new(),
+                            instruction: 0,
+                        };
+
+                        call_stack.push(new_frame);
+                    } else {
+                        bail!("cannot call function: function hash not present");
+                    }
+                }
+                Instr::Return => {
+                    // Return value is whatever is on the top of the stack
+                    // If we have `return x`, then we (the compiler) LOAD x to push it to the top of the stack
+
+                    // If this is the main function, just exit
+                    if call_stack.len() == 1 {
+                        let return_value = stack.pop().unwrap();
+                        if let Value::I32(code) = return_value {
+                            status_code = code;
+                        }
+                        break;
+                    }
+
+                    if frame.code_obj.is_void {
+                        self.call_stack.pop();
+                    } else {
+                        // Get the return value from the top of current frame's stack
+                        let return_value = stack.pop().unwrap();
+
+                        // Pop current frame from call stack
+                        call_stack.pop();
+
+                        // Push the return value onto the top of the caller's stack
+                        // call_stack.last().unwrap().stack.push(return_value);
                     };
-
-                    next_frame = Some(new_frame);
-
-                    // handle the next instr stuff, and make a new construct for the new frame.
-                } else {
-                    bail!("cannot call function: function hash not present");
                 }
+
+                /*
+
+
+                // If the instruction was a call, then update the stack frame
+                if let Some(frame) = next_frame {
+                    println!("pushing to call stack");
+                    self.call_stack.push(frame);
+                }
+
+                // Handle a return
+                match did_return {
+                    Return::Value(val) => {
+                        println!("returned with value");
+                        self.call_stack.pop();
+                        // Push the returning function's return value onto the caller's stack
+                        self.data_stack.push(val);
+                    }
+                    Return::Void => {
+                        println!("returned from void");
+                        self.call_stack.pop();
+                    }
+                    // Instruction was not a return
+                    Return::None => {}
+                }
+                         */
+                Instr::Jump(label) => next_instr = frame.code_obj.labels[&label],
+                Instr::JumpEq(label) => {
+                    if stack.len() < 2 {
+                        bail!("cannot perform comparison: stack underflow");
+                    }
+
+                    let rhs = stack.pop().unwrap();
+                    let lhs = stack.pop().unwrap();
+
+                    if lhs == rhs {
+                        next_instr = frame.code_obj.labels[&label];
+                    }
+                }
+                Instr::JumpGt(label) => {
+                    if stack.len() < 2 {
+                        bail!("cannot perform comparison: stack underflow");
+                    }
+
+                    let rhs = stack.pop().unwrap();
+                    let lhs = stack.pop().unwrap();
+
+                    if lhs > rhs {
+                        next_instr = frame.code_obj.labels[&label];
+                    }
+                }
+                Instr::JumpGe(label) => {
+                    if stack.len() < 2 {
+                        bail!("cannot perform comparison: stack underflow");
+                    }
+
+                    let rhs = stack.pop().unwrap();
+                    let lhs = stack.pop().unwrap();
+
+                    if lhs >= rhs {
+                        next_instr = frame.code_obj.labels[&label];
+                    }
+                }
+                Instr::JumpLt(label) => {
+                    if stack.len() < 2 {
+                        bail!("cannot perform comparison: stack underflow");
+                    }
+
+                    let rhs = stack.pop().unwrap();
+                    let lhs = stack.pop().unwrap();
+
+                    if lhs < rhs {
+                        next_instr = frame.code_obj.labels[&label];
+                    }
+                }
+                Instr::JumpLe(label) => {
+                    if stack.len() < 2 {
+                        bail!("cannot perform comparison: stack underflow");
+                    }
+
+                    let rhs = stack.pop().unwrap();
+                    let lhs = stack.pop().unwrap();
+
+                    if lhs <= rhs {
+                        next_instr = frame.code_obj.labels[&label];
+                    }
+                }
+
+                Instr::BinOp(op) => {
+                    if stack.len() < 2 {
+                        bail!("cannot perform binary operation: stack underflow");
+                    }
+
+                    let rhs = stack.pop().unwrap();
+                    let lhs = stack.pop().unwrap();
+
+                    match op {
+                        BinOp::Add => stack.push(lhs + rhs),
+                        BinOp::Mul => stack.push(lhs * rhs),
+                        BinOp::Div => stack.push(lhs / rhs),
+                        BinOp::Sub => stack.push(lhs - rhs),
+                        BinOp::Mod => stack.push(lhs % rhs),
+                        BinOp::Shl => stack.push(lhs << rhs),
+                        BinOp::Shr => stack.push(lhs >> rhs),
+                        BinOp::And => stack.push(lhs.and(rhs)),
+                        BinOp::Or => stack.push(lhs.and(rhs)),
+                    }
+                }
+                Instr::UnaryOp(op) => {
+                    if stack.is_empty() {
+                        bail!("cannot perform binary operation: stack underflow");
+                    }
+                    let arg = stack.pop().unwrap();
+
+                    match op {
+                        UnaryOp::Not => stack.push(!arg),
+                        UnaryOp::Neg => stack.push(-arg),
+                    }
+                }
+
+                Instr::LoadArray => {}
+                Instr::StoreArray => {}
+                Instr::MakeArray => {}
+                Instr::MakeSlice => {}
+                Instr::StoreSlice => {}
+
+                Instr::LoadField => {}
+                Instr::StoreField => {}
+                Instr::MakeStruct => {}
+
+                Instr::Nop => {}
             }
-            Instr::Return => {
-                // Return value is whatever is on the top of the stack
-                // If we have `return x`, then we LOAD x to push it to the top of the stack
-                did_return = if frame.code_obj.is_void {
-                    Return::Void
-                } else {
-                    Return::Value(stack.pop().unwrap())
-                }
-            }
 
-            Instr::Jump(label) => next_instr = frame.code_obj.labels[label],
-            Instr::JumpEq(label) => {
-                if stack.len() < 2 {
-                    bail!("cannot perform comparison: stack underflow");
-                }
-
-                let rhs = stack.pop().unwrap();
-                let lhs = stack.pop().unwrap();
-
-                if lhs == rhs {
-                    next_instr = frame.code_obj.labels[label];
-                }
-            }
-            Instr::JumpGt(label) => {
-                if stack.len() < 2 {
-                    bail!("cannot perform comparison: stack underflow");
-                }
-
-                let rhs = stack.pop().unwrap();
-                let lhs = stack.pop().unwrap();
-
-                if lhs > rhs {
-                    next_instr = frame.code_obj.labels[label];
-                }
-            }
-            Instr::JumpGe(label) => {
-                if stack.len() < 2 {
-                    bail!("cannot perform comparison: stack underflow");
-                }
-
-                let rhs = stack.pop().unwrap();
-                let lhs = stack.pop().unwrap();
-
-                if lhs >= rhs {
-                    next_instr = frame.code_obj.labels[label];
-                }
-            }
-            Instr::JumpLt(label) => {
-                if stack.len() < 2 {
-                    bail!("cannot perform comparison: stack underflow");
-                }
-
-                let rhs = stack.pop().unwrap();
-                let lhs = stack.pop().unwrap();
-
-                if lhs < rhs {
-                    next_instr = frame.code_obj.labels[label];
-                }
-            }
-            Instr::JumpLe(label) => {
-                if stack.len() < 2 {
-                    bail!("cannot perform comparison: stack underflow");
-                }
-
-                let rhs = stack.pop().unwrap();
-                let lhs = stack.pop().unwrap();
-
-                if lhs <= rhs {
-                    next_instr = frame.code_obj.labels[label];
-                }
-            }
-
-            Instr::BinOp(op) => {
-                if stack.len() < 2 {
-                    bail!("cannot perform binary operation: stack underflow");
-                }
-
-                let rhs = stack.pop().unwrap();
-                let lhs = stack.pop().unwrap();
-
-                match op {
-                    BinOp::Add => stack.push(lhs + rhs),
-                    BinOp::Mul => stack.push(lhs * rhs),
-                    BinOp::Div => stack.push(lhs / rhs),
-                    BinOp::Sub => stack.push(lhs - rhs),
-                    BinOp::Mod => stack.push(lhs % rhs),
-                    BinOp::Shl => stack.push(lhs << rhs),
-                    BinOp::Shr => stack.push(lhs >> rhs),
-                    BinOp::And => stack.push(lhs.and(rhs)),
-                    BinOp::Or => stack.push(lhs.and(rhs)),
-                }
-            }
-            Instr::UnaryOp(op) => {
-                if stack.is_empty() {
-                    bail!("cannot perform binary operation: stack underflow");
-                }
-                let arg = stack.pop().unwrap();
-
-                match op {
-                    UnaryOp::Not => stack.push(!arg),
-                    UnaryOp::Neg => stack.push(-arg),
-                }
-            }
-
-            Instr::LoadArray => {}
-            Instr::StoreArray => {}
-            Instr::MakeArray => {}
-            Instr::MakeSlice => {}
-            Instr::StoreSlice => {}
-
-            Instr::LoadField => {}
-            Instr::StoreField => {}
-            Instr::MakeStruct => {}
-
-            Instr::Nop => {}
+            // Update program counter for this frame
+            frame.instruction = next_instr;
         }
 
-        // Update program counter for this frame
-        frame.instruction = next_instr;
-        println!("next instr: {:?}", frame.code_obj.code[frame.instruction]);
-        println!("updating frame PC");
-
-        // If the instruction was a call, then update the stack frame
-        if let Some(frame) = next_frame {
-            println!("pushing to call stack");
-            self.call_stack.push(frame);
-        }
-
-        // Handle a return
-        match did_return {
-            Return::Value(val) => {
-                println!("returned with value");
-                self.call_stack.pop();
-                // Push the returning function's return value onto the caller's stack
-                self.data_stack.push(val);
-            }
-            Return::Void => {
-                println!("returned from void");
-                self.call_stack.pop();
-            }
-            Return::None => {}
-        }
-
-        Ok(())
+        Ok(status_code)
     }
 }
 
@@ -512,6 +534,7 @@ pub mod tests {
         let mut vm = Vm::new().unwrap();
 
         let frame = StackFrame {
+            stack: Vec::new(),
             code_obj: code_obj.to_owned(),
             locals: HashMap::from([
                 ("x".into(), Value::int(10)),
