@@ -770,13 +770,13 @@ pub mod tests {
     */
 
     #[test]
-    fn test_void_funccall() {
+    fn test_funccall() {
         let mut vm = Vm::new().unwrap();
 
         let func_b = CodeObject {
             litpool: vec![Value::int(4), Value::int(3)],
             argcount: 0,
-            is_void: true,
+            is_void: false,
             localnames: vec![],
             labels: HashMap::new(),
 
@@ -793,32 +793,19 @@ pub mod tests {
             .insert_code_object_with_name(&func_b, "func_b")
             .unwrap();
 
-        println!("inserted into db");
-
         let func_a = CodeObject {
             litpool: vec![],
             argcount: 0,
-            is_void: true,
+            is_void: false,
             localnames: vec![],
             labels: HashMap::new(),
 
             code: bytecode![Instr::LoadFunc(hash), Instr::Call, Instr::Return],
         };
 
-        vm.call_stack.push(StackFrame {
-            code_obj: func_a,
-            locals: HashMap::new(),
-            instruction: 0,
-            stack: todo!(),
-        });
+        let code = vm.run_main_function(&func_a).unwrap();
 
-        println!("beginning vm run");
-        // vm.exec_top_frame().unwrap();
-
-        /*
-        // Inspect stack
-        dbg!(&vm.data_stack);
-        */
+        assert_eq!(code, 7);
     }
 
     #[test]
