@@ -121,7 +121,8 @@ impl Vm {
         self.exec()
     }
 
-    /// Run the main function, but dump the entire stack.
+    /// Run the given frame and return the final state of the frame.
+    /// Mainly used for debugging.
     fn run_frame(&mut self, frame: StackFrame) -> Result<StackFrame> {
         self.call_stack.push(frame);
         self.exec()?;
@@ -134,11 +135,9 @@ impl Vm {
     fn exec(&mut self) -> Result<i32> {
         let mut status_code = 0;
 
-        // println!("{:#?}", self);
-
         while !self.call_stack.is_empty() {
-            let l = self.call_stack.len();
-            let frame = &mut self.call_stack[l - 1];
+            let call_depth = self.call_stack.len();
+            let frame = &mut self.call_stack[call_depth - 1];
             let stack = &mut frame.stack;
             if frame.instruction >= frame.code_obj.code.len() {
                 // Handle the case of a forgotten return statement
@@ -197,56 +196,26 @@ impl Vm {
                         };
 
                         next_frame = Some(new_frame);
-                        // self.call_stack.push(new_frame);
                     } else {
                         bail!("cannot call function: function hash not present");
                     }
                 }
+
                 Instr::Return => {
                     // Return value is whatever is on the top of the stack
                     // If we have `return x`, then we (the compiler) LOAD x to push it to the top of the stack
-
-                    // If this is the main function, just exit
-
                     if frame.code_obj.is_void {
                         return_value = Return::Void;
                     } else {
                         // Get the return value from the top of current frame's stack
-                        return_value = Return::Value(stack.pop().unwrap());
-
-                        // Pop current frame from call stack
-                        // self.call_stack.pop();
-
-                        // Push the return value onto the top of the caller's stack
-                        // call_stack.last().unwrap().stack.push(return_value);
+                        if stack.is_empty() {
+                            bail!("non-void function requires a return value on the stack");
+                        } else {
+                            return_value = Return::Value(stack.pop().unwrap());
+                        }
                     };
                 }
 
-                /*
-
-
-                // If the instruction was a call, then update the stack frame
-                if let Some(frame) = next_frame {
-                    println!("pushing to call stack");
-                    self.call_stack.push(frame);
-                }
-
-                // Handle a return
-                match did_return {
-                    Return::Value(val) => {
-                        println!("returned with value");
-                        self.call_stack.pop();
-                        // Push the returning function's return value onto the caller's stack
-                        self.data_stack.push(val);
-                    }
-                    Return::Void => {
-                        println!("returned from void");
-                        self.call_stack.pop();
-                    }
-                    // Instruction was not a return
-                    Return::None => {}
-                }
-                         */
                 Instr::Jump(label) => next_instr_ptr = frame.code_obj.labels[&label],
                 Instr::JumpEq(label) => {
                     if stack.len() < 2 {
@@ -367,10 +336,12 @@ impl Vm {
             match return_value {
                 Return::Value(val) => {
                     // If the main function returns
-                    if l == 1 {
+                    if call_depth == 1 {
                         // Note: this case keeps the main function's frame around
                         if let Value::I32(code) = val {
                             status_code = code;
+                        } else {
+                            bail!("main function can only return integers");
                         }
                         break;
                     }
@@ -378,7 +349,7 @@ impl Vm {
                     println!("returned with value");
                     self.call_stack.pop();
                     // Push the returning function's return value onto the caller's stack
-                    self.call_stack[l - 2].stack.push(val);
+                    self.call_stack[call_depth - 2].stack.push(val);
                 }
                 Return::Void => {
                     println!("returned from void");
@@ -770,7 +741,7 @@ pub mod tests {
     */
 
     #[test]
-    fn test_funccall() {
+    fn test_main_return_code() {
         let mut vm = Vm::new().unwrap();
 
         let func_b = CodeObject {
@@ -794,9 +765,54 @@ pub mod tests {
             .unwrap();
 
         let func_a = CodeObject {
-            litpool: vec![],
+            litpool: vec![Value::I32(10)],
             argcount: 0,
             is_void: false,
+            localnames: vec![],
+            labels: HashMap::new(),
+
+            code: bytecode![
+                Instr::LoadFunc(hash),
+                Instr::Call,
+                Instr::LoadLit(0),
+                Instr::BinOp(BinOp::Mul),
+                Instr::Return
+            ],
+        };
+
+        let code = vm.run_main_function(&func_a).unwrap();
+
+        assert_eq!(code, 70);
+    }
+
+    #[test]
+    fn test_void_funccall() {
+        let mut vm = Vm::new().unwrap();
+
+        let func_b = CodeObject {
+            litpool: vec![Value::int(4), Value::int(3)],
+            argcount: 0,
+            is_void: true,
+            localnames: vec![],
+            labels: HashMap::new(),
+
+            code: bytecode![
+                Instr::LoadLit(0), // 4
+                Instr::LoadLit(1), // 3
+                Instr::BinOp(BinOp::Add),
+                Instr::Return
+            ],
+        };
+
+        let hash = vm
+            .db
+            .insert_code_object_with_name(&func_b, "func_b")
+            .unwrap();
+
+        let func_a = CodeObject {
+            litpool: vec![],
+            argcount: 0,
+            is_void: true,
             localnames: vec![],
             labels: HashMap::new(),
 
@@ -805,11 +821,45 @@ pub mod tests {
 
         let code = vm.run_main_function(&func_a).unwrap();
 
-        assert_eq!(code, 7);
+        assert_eq!(code, 0);
     }
 
     #[test]
-    fn test_value_funccall() {
-        println!("ok");
+    fn test_main_returns() {
+        let mut vm = Vm::new().unwrap();
+        let func = CodeObject {
+            litpool: vec![],
+            argcount: 0,
+            is_void: false,
+            localnames: vec![],
+            labels: HashMap::new(),
+
+            code: bytecode![Instr::Return],
+        };
+        assert!(vm.run_main_function(&func).is_err());
+
+        let func = CodeObject {
+            litpool: vec![Value::string("break")],
+            argcount: 0,
+            is_void: false,
+            localnames: vec![],
+            labels: HashMap::new(),
+
+            code: bytecode![Instr::LoadLit(0), Instr::Return],
+        };
+
+        assert!(vm.run_main_function(&func).is_err());
+
+        let func = CodeObject {
+            litpool: vec![Value::I32(0)],
+            argcount: 0,
+            is_void: false,
+            localnames: vec![],
+            labels: HashMap::new(),
+
+            code: bytecode![Instr::LoadLit(0), Instr::Return],
+        };
+
+        assert_eq!(vm.run_main_function(&func).unwrap(), 0);
     }
 }
