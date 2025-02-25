@@ -403,9 +403,28 @@ impl Value {
 pub mod tests {
     use super::*;
 
+    use rand::{distr::Alphanumeric, Rng};
+
     pub fn init_code_obj(code: Bytecode) -> CodeObject {
         CodeObject {
             litpool: vec![Value::int(5), Value::string("hello")],
+            argcount: 2, // x and y
+            is_void: false,
+            labels: HashMap::new(),
+            localnames: vec!["x".into(), "y".into(), "z".into()],
+            code,
+        }
+    }
+
+    pub fn init_nondet_code_obj(code: Bytecode) -> CodeObject {
+        let s: String = rand::rng()
+            .sample_iter(&Alphanumeric)
+            .take(7)
+            .map(char::from)
+            .collect();
+
+        CodeObject {
+            litpool: vec![Value::int(5), Value::String(s)],
             argcount: 2, // x and y
             is_void: false,
             labels: HashMap::new(),
