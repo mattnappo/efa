@@ -118,21 +118,19 @@ impl Vm {
             instruction: 0,
         };
         self.call_stack.push(main);
-        self.exec()
+        self.exec(false)
     }
 
     /// Run the given frame and return the final state of the frame.
     /// Mainly used for debugging.
     fn run_frame(&mut self, frame: StackFrame) -> Result<StackFrame> {
         self.call_stack.push(frame);
-        self.exec()?;
+        self.exec(true)?;
         Ok(self.call_stack.last().unwrap().clone())
     }
 
-    // TODO: pub fn exec_codeobj / exec_main
-    // Wraps a code object in a frame and executes the frame
-    // Need to deal with `locals` field of uninitialized local vars.
-    fn exec(&mut self) -> Result<i32> {
+    /// With debug=true, the final frame will stay on the call stack.
+    fn exec(&mut self, debug: bool) -> Result<i32> {
         let mut status_code = 0;
 
         while !self.call_stack.is_empty() {
@@ -428,6 +426,10 @@ impl Vm {
                 // Instruction was not a return
                 Return::None => {}
             }
+        }
+
+        if !debug {
+            self.call_stack.pop();
         }
 
         Ok(status_code)
