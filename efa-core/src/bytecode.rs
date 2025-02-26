@@ -15,6 +15,7 @@ pub enum BinOp {
     Shr,
     And,
     Or,
+    Eq,
     // BitAnd,
     // BitOr,
     // BitXor,
@@ -36,9 +37,12 @@ pub enum Instr {
 
     LoadFunc(Hash),
     Call,
+    CallSelf,
     Return,
 
     Jump(usize),
+    JumpT(usize),
+    JumpF(usize),
     JumpEq(usize),
     JumpGt(usize),
     JumpGe(usize),

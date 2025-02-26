@@ -28,7 +28,7 @@ pub struct CodeObject {
     is_void: bool,
     localnames: Vec<String>,
     /// Map from label index to an offset in the bytecode
-    labels: HashMap<usize, usize>,
+    labels: Vec<usize>,
 
     code: Bytecode,
 }
@@ -155,6 +155,9 @@ impl Vm {
                         bail!("argument index {i} out of bounds");
                     }
                     let arg_name = &frame.code_obj.localnames[i];
+                    println!("instr: {instr:?}");
+                    println!("arg name: {arg_name:?}");
+                    println!("frame.locals: {:?}", frame.locals);
                     stack.push(frame.locals[arg_name].clone());
                 }
                 Instr::LoadLocal(i) => {
@@ -187,11 +190,23 @@ impl Vm {
                         // Find the right code object by looking up the hash in the database
                         let code_obj = self.db.get_code_object(&hash)?;
 
+                        // Set up parameters
+                        let params: Result<_> = code_obj
+                            .localnames
+                            .iter()
+                            .take(code_obj.argcount)
+                            .map(|name| {
+                                if stack.is_empty() {
+                                    bail!("not enough arguments on stack to call function with arity {}", code_obj.argcount);
+                                }
+                                Ok((name.to_owned(), stack.pop().unwrap()))
+                            }).collect();
+
                         // Construct a new stackframe
                         let new_frame = StackFrame {
                             stack: Vec::new(),
                             code_obj,
-                            locals: HashMap::new(),
+                            locals: params?,
                             instruction: 0,
                         };
 
@@ -199,6 +214,36 @@ impl Vm {
                     } else {
                         bail!("cannot call function: function hash not present");
                     }
+                }
+
+                // TODO: reduce code duplication with Call
+                Instr::CallSelf => {
+                    let code_obj = frame.code_obj.clone();
+
+                    // Set up parameters
+                    let params: Result<_> = code_obj
+                        .localnames
+                        .iter()
+                        .take(code_obj.argcount)
+                        .map(|name| {
+                            if stack.is_empty() {
+                                bail!(
+                                    "not enough arguments on stack to call function with arity {}",
+                                    code_obj.argcount
+                                );
+                            }
+                            Ok((name.to_owned(), stack.pop().unwrap()))
+                        })
+                        .collect();
+
+                    let new_frame = StackFrame {
+                        stack: Vec::new(),
+                        code_obj: frame.code_obj.clone(),
+                        locals: params?,
+                        instruction: 0,
+                    };
+
+                    next_frame = Some(new_frame);
                 }
 
                 Instr::Return => {
@@ -216,7 +261,37 @@ impl Vm {
                     };
                 }
 
-                Instr::Jump(label) => next_instr_ptr = frame.code_obj.labels[&label],
+                Instr::Jump(label) => next_instr_ptr = frame.code_obj.labels[label],
+
+                Instr::JumpT(label) => {
+                    if stack.len() < 1 {
+                        bail!("cannot perform jump: stack underflow");
+                    }
+
+                    let top = stack.pop().unwrap();
+
+                    if let Value::Bool(true) = top {
+                        next_instr_ptr = frame
+                            .code_obj
+                            .labels
+                            .get(label)
+                            .copied()
+                            .ok_or_else(|| anyhow!("label {} does not exist", label))?;
+                    }
+                }
+
+                Instr::JumpF(label) => {
+                    if stack.len() < 1 {
+                        bail!("cannot perform jump: stack underflow");
+                    }
+
+                    let top = stack.pop().unwrap();
+
+                    if let Value::Bool(false) = top {
+                        next_instr_ptr = frame.code_obj.labels[label];
+                    }
+                }
+
                 Instr::JumpEq(label) => {
                     if stack.len() < 2 {
                         bail!("cannot perform comparison: stack underflow");
@@ -226,7 +301,7 @@ impl Vm {
                     let lhs = stack.pop().unwrap();
 
                     if lhs == rhs {
-                        next_instr_ptr = frame.code_obj.labels[&label];
+                        next_instr_ptr = frame.code_obj.labels[label];
                     }
                 }
                 Instr::JumpGt(label) => {
@@ -238,7 +313,7 @@ impl Vm {
                     let lhs = stack.pop().unwrap();
 
                     if lhs > rhs {
-                        next_instr_ptr = frame.code_obj.labels[&label];
+                        next_instr_ptr = frame.code_obj.labels[label];
                     }
                 }
                 Instr::JumpGe(label) => {
@@ -250,7 +325,7 @@ impl Vm {
                     let lhs = stack.pop().unwrap();
 
                     if lhs >= rhs {
-                        next_instr_ptr = frame.code_obj.labels[&label];
+                        next_instr_ptr = frame.code_obj.labels[label];
                     }
                 }
                 Instr::JumpLt(label) => {
@@ -262,7 +337,7 @@ impl Vm {
                     let lhs = stack.pop().unwrap();
 
                     if lhs < rhs {
-                        next_instr_ptr = frame.code_obj.labels[&label];
+                        next_instr_ptr = frame.code_obj.labels[label];
                     }
                 }
                 Instr::JumpLe(label) => {
@@ -274,7 +349,7 @@ impl Vm {
                     let lhs = stack.pop().unwrap();
 
                     if lhs <= rhs {
-                        next_instr_ptr = frame.code_obj.labels[&label];
+                        next_instr_ptr = frame.code_obj.labels[label];
                     }
                 }
 
@@ -295,7 +370,8 @@ impl Vm {
                         BinOp::Shl => stack.push(lhs << rhs),
                         BinOp::Shr => stack.push(lhs >> rhs),
                         BinOp::And => stack.push(lhs.and(rhs)),
-                        BinOp::Or => stack.push(lhs.and(rhs)),
+                        BinOp::Eq => stack.push(Value::Bool(lhs == rhs)),
+                        BinOp::Or => stack.push(lhs.or(rhs)),
                     }
                 }
                 Instr::UnaryOp(op) => {
@@ -490,7 +566,19 @@ impl Value {
             (Value::String(s), Value::I32(x)) | (Value::I32(x), Value::String(s)) => {
                 Value::I32((!s.is_empty() && (x != 0)) as i32)
             }
-            _ => panic!("failed to perform shr"),
+            (Value::Bool(x), Value::Bool(y)) => Value::Bool(x && y),
+            _ => panic!("failed to perform and"),
+        }
+    }
+
+    pub fn or(self, other: Self) -> Self {
+        match (self, other) {
+            (Value::I32(x), Value::I32(y)) => Value::I32(((x != 0) && (y != 0)) as i32),
+            (Value::String(s), Value::I32(x)) | (Value::I32(x), Value::String(s)) => {
+                Value::I32((!s.is_empty() && (x != 0)) as i32)
+            }
+            (Value::Bool(x), Value::Bool(y)) => Value::Bool(x || y),
+            _ => panic!("failed to perform or"),
         }
     }
 }
@@ -506,7 +594,7 @@ pub mod tests {
             litpool: vec![Value::int(5), Value::string("hello")],
             argcount: 2, // x and y
             is_void: false,
-            labels: HashMap::new(),
+            labels: Vec::new(),
             localnames: vec!["x".into(), "y".into(), "z".into()],
             code,
         }
@@ -537,7 +625,7 @@ pub mod tests {
             litpool: vec![Value::int(5), Value::String(s)],
             argcount: 2, // x and y
             is_void: false,
-            labels: HashMap::new(),
+            labels: Vec::new(),
             localnames: vec!["x".into(), "y".into(), "z".into()],
             code,
         }
@@ -548,7 +636,7 @@ pub mod tests {
             litpool,
             argcount: 2, // x and y
             is_void: false,
-            labels: HashMap::new(),
+            labels: Vec::new(),
             localnames: vec!["x".into(), "y".into(), "z".into()],
             code,
         }
@@ -656,7 +744,7 @@ pub mod tests {
             Instr::BinOp(BinOp::Add),
             Instr::BinOp(BinOp::Mul)
         ]);
-        main.code_obj.labels.insert(0, 2);
+        main.code_obj.labels.push(2);
         let mut vm = Vm::new().unwrap();
 
         main.stack.push(Value::int(5));
@@ -682,7 +770,7 @@ pub mod tests {
             ],
             vec![Value::int(1), Value::int(2), Value::int(4)],
         );
-        code_obj.labels.insert(0, 7);
+        code_obj.labels.push(7);
 
         let main = StackFrame {
             code_obj,
@@ -712,7 +800,7 @@ pub mod tests {
             ],
             vec![Value::int(1), Value::int(2), Value::int(4)],
         );
-        code_obj.labels.insert(0, 7);
+        code_obj.labels.push(7);
         let main = StackFrame {
             code_obj,
             stack: vec![Value::int(1), Value::int(2), Value::int(4), Value::int(4)],
@@ -749,7 +837,7 @@ pub mod tests {
             argcount: 0,
             is_void: false,
             localnames: vec![],
-            labels: HashMap::new(),
+            labels: Vec::new(),
 
             code: bytecode![
                 Instr::LoadLit(0), // 4
@@ -769,7 +857,7 @@ pub mod tests {
             argcount: 0,
             is_void: false,
             localnames: vec![],
-            labels: HashMap::new(),
+            labels: Vec::new(),
 
             code: bytecode![
                 Instr::LoadFunc(hash),
@@ -794,7 +882,7 @@ pub mod tests {
             argcount: 0,
             is_void: true,
             localnames: vec![],
-            labels: HashMap::new(),
+            labels: Vec::new(),
 
             code: bytecode![
                 Instr::LoadLit(0), // 4
@@ -814,7 +902,7 @@ pub mod tests {
             argcount: 0,
             is_void: true,
             localnames: vec![],
-            labels: HashMap::new(),
+            labels: Vec::new(),
 
             code: bytecode![Instr::LoadFunc(hash), Instr::Call, Instr::Return],
         };
@@ -832,7 +920,7 @@ pub mod tests {
             argcount: 0,
             is_void: false,
             localnames: vec![],
-            labels: HashMap::new(),
+            labels: Vec::new(),
 
             code: bytecode![Instr::Return],
         };
@@ -843,7 +931,7 @@ pub mod tests {
             argcount: 0,
             is_void: false,
             localnames: vec![],
-            labels: HashMap::new(),
+            labels: Vec::new(),
 
             code: bytecode![Instr::LoadLit(0), Instr::Return],
         };
@@ -855,11 +943,70 @@ pub mod tests {
             argcount: 0,
             is_void: false,
             localnames: vec![],
-            labels: HashMap::new(),
+            labels: Vec::new(),
 
             code: bytecode![Instr::LoadLit(0), Instr::Return],
         };
 
         assert_eq!(vm.run_main_function(&func).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_fib() {
+        let mut vm = Vm::new().unwrap();
+        let fib = CodeObject {
+            litpool: vec![Value::I32(0), Value::I32(1), Value::I32(2)],
+            argcount: 1,
+            is_void: false,
+            localnames: vec!["n".into()],
+            labels: Vec::new(),
+            code: bytecode![
+                Instr::LoadArg(0),       // load n
+                Instr::LoadLit(0),       // load 0
+                Instr::BinOp(BinOp::Eq), // push n == 0
+                Instr::LoadArg(0),       // load n
+                Instr::LoadLit(1),       // load 1
+                Instr::BinOp(BinOp::Eq), // push n == 1
+                Instr::BinOp(BinOp::Or), // push (n == 0) || (n == 1)
+                Instr::JumpT(0),         // jump to label 0
+                // fib(n-1)
+                Instr::LoadArg(0),
+                Instr::LoadLit(1),
+                Instr::BinOp(BinOp::Sub),
+                Instr::CallSelf,
+                // fib(n-2)
+                Instr::LoadArg(0),
+                Instr::LoadLit(2),
+                Instr::BinOp(BinOp::Sub),
+                Instr::CallSelf,
+                // fib(n-1) + fib(n-2)
+                Instr::BinOp(BinOp::Add),
+                Instr::Return,
+                // Label 0:
+                Instr::LoadArg(0), // push n
+                Instr::Return
+            ],
+        };
+
+        let hash = vm.db.insert_code_object_with_name(&fib, "fib").unwrap();
+
+        let mut f = |n: i32| -> i32 {
+            let main = CodeObject {
+                litpool: vec![Value::I32(n)],
+                argcount: 0,
+                is_void: false,
+                localnames: vec![],
+                labels: Vec::new(),
+                code: bytecode![
+                    Instr::LoadLit(0),
+                    Instr::LoadFunc(hash),
+                    Instr::Call,
+                    Instr::Return
+                ],
+            };
+            vm.run_main_function(&main).unwrap()
+        };
+
+        assert_eq!(f(15), 610);
     }
 }
