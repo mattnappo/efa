@@ -155,9 +155,6 @@ impl Vm {
                         bail!("argument index {i} out of bounds");
                     }
                     let arg_name = &frame.code_obj.localnames[i];
-                    println!("instr: {instr:?}");
-                    println!("arg name: {arg_name:?}");
-                    println!("frame.locals: {:?}", frame.locals);
                     stack.push(frame.locals[arg_name].clone());
                 }
                 Instr::LoadLocal(i) => {
@@ -404,7 +401,6 @@ impl Vm {
 
             // If the instruction was a call, then update the stack frame
             if let Some(frame) = next_frame {
-                println!("pushing to call stack");
                 self.call_stack.push(frame);
             }
 
@@ -422,13 +418,11 @@ impl Vm {
                         break;
                     }
 
-                    println!("returned with value");
                     self.call_stack.pop();
                     // Push the returning function's return value onto the caller's stack
                     self.call_stack[call_depth - 2].stack.push(val);
                 }
                 Return::Void => {
-                    println!("returned from void");
                     self.call_stack.pop();
                 }
                 // Instruction was not a return
@@ -959,7 +953,7 @@ pub mod tests {
             argcount: 1,
             is_void: false,
             localnames: vec!["n".into()],
-            labels: Vec::new(),
+            labels: vec![18],
             code: bytecode![
                 Instr::LoadArg(0),       // load n
                 Instr::LoadLit(0),       // load 0
@@ -982,7 +976,7 @@ pub mod tests {
                 // fib(n-1) + fib(n-2)
                 Instr::BinOp(BinOp::Add),
                 Instr::Return,
-                // Label 0:
+                // Label 0 (line 18)
                 Instr::LoadArg(0), // push n
                 Instr::Return
             ],
@@ -1007,6 +1001,8 @@ pub mod tests {
             vm.run_main_function(&main).unwrap()
         };
 
+        assert_eq!(f(10), 55);
         assert_eq!(f(15), 610);
+        assert_eq!(f(25), 75025);
     }
 }
