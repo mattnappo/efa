@@ -26,6 +26,8 @@ pub struct CodeObject {
     litpool: Vec<Value>,
     argcount: usize,
     is_void: bool,
+    // TODO: change to be num_locals? then the stack frame locals could be vec<value>
+    // Worse debuggability
     localnames: Vec<String>,
     /// Map from label index to an offset in the bytecode
     labels: Vec<usize>,
@@ -74,17 +76,14 @@ impl Value {
 
 impl PartialOrd for Value {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match (self, other) {
-            (Value::I32(x), Value::I32(y)) => Some(x.cmp(&y)),
-            _ => panic!("cannot compare non-integer values"),
-        }
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for Value {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
-            (Value::I32(x), Value::I32(y)) => x.cmp(&y),
+            (Value::I32(x), Value::I32(y)) => x.cmp(y),
             _ => panic!("cannot compare non-integer values"),
         }
     }
@@ -179,6 +178,11 @@ impl Vm {
                     stack.push(Value::Hash(hash));
                 }
 
+                Instr::LoadDyn(name) => {
+                    let (hash, _) = self.db.get_code_object_by_name(&name)?;
+                    stack.push(Value::Hash(hash));
+                }
+
                 Instr::Call => {
                     // Pop hash from stack
                     if let Some(Value::Hash(hash)) = stack.pop() {
@@ -259,7 +263,7 @@ impl Vm {
                 Instr::Jump(label) => next_instr_ptr = frame.code_obj.labels[label],
 
                 Instr::JumpT(label) => {
-                    if stack.len() < 1 {
+                    if stack.is_empty() {
                         bail!("cannot perform jump: stack underflow");
                     }
 
@@ -276,7 +280,7 @@ impl Vm {
                 }
 
                 Instr::JumpF(label) => {
-                    if stack.len() < 1 {
+                    if stack.is_empty() {
                         bail!("cannot perform jump: stack underflow");
                     }
 
@@ -391,6 +395,10 @@ impl Vm {
                 Instr::StoreField => {}
                 Instr::MakeStruct => {}
 
+                Instr::Dbg => {
+                    let tos = stack.pop().unwrap();
+                    dbg!(tos);
+                }
                 Instr::Nop => {}
             }
 

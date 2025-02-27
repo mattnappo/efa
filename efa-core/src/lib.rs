@@ -1,5 +1,6 @@
 #[macro_use]
 pub mod bytecode;
+pub mod asm;
 pub mod db;
 pub mod vm;
 

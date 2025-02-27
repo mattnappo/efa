@@ -156,18 +156,21 @@ impl Database {
             Ok(rmp_serde::from_slice::<CodeObject>(&code_obj_blob))
         })?;
 
-        let obj = match query_result.into_iter().next() {
-            Some(obj) => Ok(obj??),
-            None => bail!(
-                "query failed: no code object with hash 0x{}",
-                hex::encode(hash)
-            ),
-        };
-
+        let obj = query_result
+            .into_iter()
+            .flatten()
+            .flatten()
+            .next()
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "query failed: no code object with hash 0x{}",
+                    hex::encode(hash)
+                )
+            });
         obj
     }
 
-    pub fn get_code_object_by_name(&self, name: &str) -> Result<CodeObject> {
+    pub fn get_code_object_by_name(&self, name: &str) -> Result<(Hash, CodeObject)> {
         let mut stmt = self
             .conn
             .prepare("SELECT hash FROM names WHERE name = ?1;")?;
@@ -186,7 +189,7 @@ impl Database {
             .try_into()
             .map_err(|_| anyhow::anyhow!("failed to hash CodeObject"))?;
 
-        self.get_code_object(&hash)
+        Ok((hash, self.get_code_object(&hash)?))
     }
 
     // TODO: Now must write functions for:
@@ -265,8 +268,8 @@ pub mod tests {
     fn test_get_codeobj_name() {
         let db = Database::open("/tmp/test.db").unwrap();
         let obj = init_code_obj(bytecode![]);
-        let q_obj = db.get_code_object_by_name("random_obj").unwrap();
-        assert_eq!(obj.hash().unwrap(), q_obj.hash().unwrap());
+        let (hash, _) = db.get_code_object_by_name("random_obj").unwrap();
+        assert_eq!(obj.hash().unwrap(), hash);
     }
 
     #[test]

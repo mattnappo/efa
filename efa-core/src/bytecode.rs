@@ -36,6 +36,7 @@ pub enum Instr {
     Pop,
 
     LoadFunc(Hash),
+    LoadDyn(String),
     Call,
     CallSelf,
     Return,
@@ -62,6 +63,7 @@ pub enum Instr {
     StoreField,
     MakeStruct,
 
+    Dbg,
     Nop,
 }
 
