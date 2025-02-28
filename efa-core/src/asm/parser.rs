@@ -123,9 +123,21 @@ impl Parser {
             }
 
             let int_argument = argument.map(|a| a.parse::<usize>().ok()).flatten();
-            let hash_argument = argument.map(|a| hex::decode(a).ok()).flatten();
+            let hash_argument = argument.map(|a| hex::decode(a).ok()).flatten(); // Remove the 0x
+            let str_argument = if int_argument.is_some() {
+                None
+            } else {
+                argument
+            };
 
-            let instr = match (base, int_argument, argument) {
+            dbg!(&l);
+            dbg!(&argument);
+            dbg!(&int_argument);
+            dbg!(&hash_argument);
+            dbg!(&str_argument);
+
+            let mut void: bool = false;
+            let instr = match (base, int_argument, str_argument) {
                 ("load_arg", Some(arg), None) => Instr::LoadArg(arg),
                 ("load_loc", Some(arg), None) => Instr::LoadLocal(arg),
                 ("load_lit", Some(arg), None) => Instr::LoadLit(arg),
@@ -138,8 +150,7 @@ impl Parser {
                         Instr::LoadFunc(
                             hash[..HASH_SIZE]
                                 .try_into()
-                                .map_err(|_| ParseError::InvalidHash)
-                                .unwrap(), // TODO: remove this unwrap
+                                .map_err(|_| ParseError::InvalidHash)?,
                         )
                     } else {
                         return Err(ParseError::ExpectedArgument);
@@ -149,23 +160,31 @@ impl Parser {
                     todo!()
                 }
 
+                (op, None, Some(arg)) if op.starts_with("jmp") => {
+                    Self::get_jump_instr(op, &label_names, arg)?
+                }
+
                 ("call", None, None) => Instr::Call,
                 ("call_self", None, None) => Instr::CallSelf,
                 ("ret", None, None) => Instr::Return,
+                ("ret_val", None, None) => {
+                    void = false;
+                    Instr::Return
+                }
 
                 ("add", None, None) => Instr::BinOp(BinOp::Add),
                 ("mul", None, None) => Instr::BinOp(BinOp::Mul),
-                ("div", None, Some(arg)) => Instr::BinOp(BinOp::Div),
-                ("mod", None, Some(arg)) => Instr::BinOp(BinOp::Mod),
-                ("shl", None, Some(arg)) => Instr::BinOp(BinOp::Shl),
-                ("shr", None, Some(arg)) => Instr::BinOp(BinOp::Shr),
+                ("div", None, None) => Instr::BinOp(BinOp::Div),
+                ("sub", None, None) => Instr::BinOp(BinOp::Sub),
+                ("mod", None, None) => Instr::BinOp(BinOp::Mod),
+                ("shl", None, None) => Instr::BinOp(BinOp::Shl),
+                ("shr", None, None) => Instr::BinOp(BinOp::Shr),
+                ("and", None, None) => Instr::BinOp(BinOp::And),
+                ("or", None, None) => Instr::BinOp(BinOp::Or),
+                ("eq", None, None) => Instr::BinOp(BinOp::Eq),
 
-                ("and", None, Some(arg)) => Instr::BinOp(BinOp::And),
-                ("or", None, Some(arg)) => Instr::BinOp(BinOp::Or),
-                ("eq", None, Some(arg)) => Instr::BinOp(BinOp::Eq),
-
-                ("not", None, Some(arg)) => Instr::UnaryOp(UnaryOp::Not),
-                ("neg", None, Some(arg)) => Instr::UnaryOp(UnaryOp::Neg),
+                ("not", None, None) => Instr::UnaryOp(UnaryOp::Not),
+                ("neg", None, None) => Instr::UnaryOp(UnaryOp::Neg),
                 _ => return Err(ParseError::UnknownInstr),
             };
 
@@ -175,9 +194,10 @@ impl Parser {
     }
     fn get_jump_instr(
         op: &str,
-        label_names: &HashMap<&str, usize>,
+        label_names: &HashMap<String, usize>,
         arg: &str,
     ) -> Result<Instr, ParseError> {
+        dbg!(&label_names);
         let label_idx = label_names.get(arg).ok_or(ParseError::UnknownLabel)?;
         match op {
             "jmp" => Result::Ok(Instr::Jump(*label_idx)),
@@ -220,7 +240,7 @@ mod tests {
 
     #[test]
     fn test_1() {
-        // dbg_f("./examples/fib.asm");
-        dbg_f("./examples/labels.asm");
+        dbg_f("./examples/fib.asm");
+        // dbg_f("./examples/labels.asm");
     }
 }

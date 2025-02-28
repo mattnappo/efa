@@ -8,7 +8,7 @@ $fib 1:
     or
     jmp_t L0
     load_arg 0
-L2:
+L0:
     load_lit 1
     sub
     call_self
