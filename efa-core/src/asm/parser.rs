@@ -7,12 +7,18 @@ use std::path::{Path, PathBuf};
 use anyhow::{Ok, Result};
 
 use crate::bytecode::{BinOp, Instr, UnaryOp};
-use crate::vm::Value;
+use crate::vm::{CodeObject, Value};
 use crate::{is_valid_name, HASH_SIZE};
 
 pub struct Parser {
     file: Option<PathBuf>,
     contents: String,
+}
+
+struct PartialParse {
+    tokens: Vec<ParseToken>,
+    labels: Vec<usize>,
+    is_void: bool,
 }
 
 #[derive(Debug)]
@@ -41,17 +47,18 @@ enum ParseToken {
 }
 
 impl Parser {
-    pub fn parse_file<P: AsRef<Path>>(path: P) -> Result<Vec<ParseToken>> {
+    pub fn parse_file<P: AsRef<Path>>(path: P) -> Result<CodeObject> {
         let contents = fs::read_to_string(&path)?;
         let p = Parser {
             file: Some(path.as_ref().to_path_buf()),
             contents,
         };
-        p.parse_function().map_err(anyhow::Error::msg)
+        let partial_parse = p.parse_function().map_err(anyhow::Error::msg)?;
+        Self::resolve_parse(partial_parse)
     }
 
     /// Parse the bytecode of a single function
-    pub fn parse_function(&self) -> Result<Vec<ParseToken>, ParseError> {
+    pub fn parse_function(&self) -> Result<PartialParse, ParseError> {
         let code = self.contents.lines().filter(|l| !l.is_empty());
 
         // Want a map from label names (L0, L1) to label number
@@ -85,113 +92,123 @@ impl Parser {
             .map(|(i, (name, offset))| ((name, i), offset))
             .unzip();
 
-        code.map(|l| {
-            let parts = l.split_whitespace().collect::<Vec<&str>>();
-            dbg!(&parts);
-            if parts.len() > 2 {
-                return Err(ParseError::UnexpectedArgument);
-            }
+        let mut is_void: bool = false;
 
-            let base = parts[0];
-            let argument = parts.get(1).copied();
+        let tokens = code
+            .map(|l| {
+                let parts = l.split_whitespace().collect::<Vec<&str>>();
+                dbg!(&parts);
+                if parts.len() > 2 {
+                    return Err(ParseError::UnexpectedArgument);
+                }
 
-            // If line starts with a $, it is a function
-            // Else if line otherwise ends with a colon, it is a label
-            // Else, it is an instruction
-            let base_first_char = base.chars().nth(0).unwrap(); // todo; remove this unwrap
-            match (base_first_char, argument) {
-                ('$', Some(arg)) => {
-                    let func_name = &base[1..];
-                    if arg.chars().last().unwrap() != ':' {
-                        return Result::Err(ParseError::SyntaxError);
+                let base = parts[0];
+                let argument = parts.get(1).copied();
+
+                // If line starts with a $, it is a function
+                // Else if line otherwise ends with a colon, it is a label
+                // Else, it is an instruction
+                let base_first_char = base.chars().nth(0).unwrap(); // todo; remove this unwrap
+                match (base_first_char, argument) {
+                    ('$', Some(arg)) => {
+                        let func_name = &base[1..];
+                        if arg.chars().last().unwrap() != ':' {
+                            return Result::Err(ParseError::SyntaxError);
+                        }
+                        let arity: usize = arg[..arg.len() - 1]
+                            .parse()
+                            .map_err(|_| ParseError::InvalidArg)?;
+                        if !is_valid_name(func_name) {
+                            return Result::Err(ParseError::InvalidIdent);
+                        }
+                        return Result::Ok(ParseToken::FuncDef(func_name.to_string(), arity));
                     }
-                    let arity: usize = arg[..arg.len() - 1]
-                        .parse()
-                        .map_err(|_| ParseError::InvalidArg)?;
-                    if !is_valid_name(func_name) {
-                        return Result::Err(ParseError::InvalidIdent);
+                    ('$', None) => return Result::Err(ParseError::ExpectedArgument),
+                    _ => {}
+                };
+
+                if argument.is_none() && base.chars().last().unwrap() == ':' {
+                    let label = base[..base.len() - 1].to_string();
+                    return Result::Ok(ParseToken::Label(label));
+                }
+
+                let int_argument = argument.map(|a| a.parse::<usize>().ok()).flatten();
+                let hash_argument = argument.map(|a| hex::decode(a).ok()).flatten(); // Remove the 0x
+                let str_argument = if int_argument.is_some() {
+                    None
+                } else {
+                    argument
+                };
+
+                dbg!(&l);
+                dbg!(&argument);
+                dbg!(&int_argument);
+                dbg!(&hash_argument);
+                dbg!(&str_argument);
+
+                let instr = match (base, int_argument, str_argument) {
+                    ("load_arg", Some(arg), None) => Instr::LoadArg(arg),
+                    ("load_loc", Some(arg), None) => Instr::LoadLocal(arg),
+                    ("load_lit", Some(arg), None) => Instr::LoadLit(arg),
+                    ("str_loc", Some(arg), None) => Instr::StoreLocal(arg),
+                    ("pop", None, None) => Instr::Pop,
+
+                    // TODO
+                    ("load_func", None, None) => {
+                        if let Some(hash) = hash_argument {
+                            Instr::LoadFunc(
+                                hash[..HASH_SIZE]
+                                    .try_into()
+                                    .map_err(|_| ParseError::InvalidHash)?,
+                            )
+                        } else {
+                            return Err(ParseError::ExpectedArgument);
+                        }
                     }
-                    return Result::Ok(ParseToken::FuncDef(func_name.to_string(), arity));
-                }
-                ('$', None) => return Result::Err(ParseError::ExpectedArgument),
-                _ => {}
-            };
-
-            if argument.is_none() && base.chars().last().unwrap() == ':' {
-                let label = base[..base.len() - 1].to_string();
-                return Result::Ok(ParseToken::Label(label));
-            }
-
-            let int_argument = argument.map(|a| a.parse::<usize>().ok()).flatten();
-            let hash_argument = argument.map(|a| hex::decode(a).ok()).flatten(); // Remove the 0x
-            let str_argument = if int_argument.is_some() {
-                None
-            } else {
-                argument
-            };
-
-            dbg!(&l);
-            dbg!(&argument);
-            dbg!(&int_argument);
-            dbg!(&hash_argument);
-            dbg!(&str_argument);
-
-            let mut void: bool = false;
-            let instr = match (base, int_argument, str_argument) {
-                ("load_arg", Some(arg), None) => Instr::LoadArg(arg),
-                ("load_loc", Some(arg), None) => Instr::LoadLocal(arg),
-                ("load_lit", Some(arg), None) => Instr::LoadLit(arg),
-                ("str_loc", Some(arg), None) => Instr::StoreLocal(arg),
-                ("pop", None, None) => Instr::Pop,
-
-                // TODO
-                ("load_func", None, None) => {
-                    if let Some(hash) = hash_argument {
-                        Instr::LoadFunc(
-                            hash[..HASH_SIZE]
-                                .try_into()
-                                .map_err(|_| ParseError::InvalidHash)?,
-                        )
-                    } else {
-                        return Err(ParseError::ExpectedArgument);
+                    ("load_dyn", None, Some(arg)) => {
+                        let func_name = &arg[1..];
+                        Instr::LoadDyn(func_name.to_string())
                     }
-                }
-                ("load_dyn", None, None) => {
-                    todo!()
-                }
 
-                (op, None, Some(arg)) if op.starts_with("jmp") => {
-                    Self::get_jump_instr(op, &label_names, arg)?
-                }
+                    (op, None, Some(arg)) if op.starts_with("jmp") => {
+                        Self::get_jump_instr(op, &label_names, arg)?
+                    }
 
-                ("call", None, None) => Instr::Call,
-                ("call_self", None, None) => Instr::CallSelf,
-                ("ret", None, None) => Instr::Return,
-                ("ret_val", None, None) => {
-                    void = false;
-                    Instr::Return
-                }
+                    ("call", None, None) => Instr::Call,
+                    ("call_self", None, None) => Instr::CallSelf,
+                    ("ret", None, None) => Instr::Return,
+                    ("ret_val", None, None) => {
+                        is_void = false;
+                        Instr::Return
+                    }
 
-                ("add", None, None) => Instr::BinOp(BinOp::Add),
-                ("mul", None, None) => Instr::BinOp(BinOp::Mul),
-                ("div", None, None) => Instr::BinOp(BinOp::Div),
-                ("sub", None, None) => Instr::BinOp(BinOp::Sub),
-                ("mod", None, None) => Instr::BinOp(BinOp::Mod),
-                ("shl", None, None) => Instr::BinOp(BinOp::Shl),
-                ("shr", None, None) => Instr::BinOp(BinOp::Shr),
-                ("and", None, None) => Instr::BinOp(BinOp::And),
-                ("or", None, None) => Instr::BinOp(BinOp::Or),
-                ("eq", None, None) => Instr::BinOp(BinOp::Eq),
+                    ("add", None, None) => Instr::BinOp(BinOp::Add),
+                    ("mul", None, None) => Instr::BinOp(BinOp::Mul),
+                    ("div", None, None) => Instr::BinOp(BinOp::Div),
+                    ("sub", None, None) => Instr::BinOp(BinOp::Sub),
+                    ("mod", None, None) => Instr::BinOp(BinOp::Mod),
+                    ("shl", None, None) => Instr::BinOp(BinOp::Shl),
+                    ("shr", None, None) => Instr::BinOp(BinOp::Shr),
+                    ("and", None, None) => Instr::BinOp(BinOp::And),
+                    ("or", None, None) => Instr::BinOp(BinOp::Or),
+                    ("eq", None, None) => Instr::BinOp(BinOp::Eq),
 
-                ("not", None, None) => Instr::UnaryOp(UnaryOp::Not),
-                ("neg", None, None) => Instr::UnaryOp(UnaryOp::Neg),
-                _ => return Err(ParseError::UnknownInstr),
-            };
+                    ("not", None, None) => Instr::UnaryOp(UnaryOp::Not),
+                    ("neg", None, None) => Instr::UnaryOp(UnaryOp::Neg),
+                    _ => return Err(ParseError::UnknownInstr),
+                };
 
-            Result::Ok(ParseToken::Instr(instr))
+                Result::Ok(ParseToken::Instr(instr))
+            })
+            .collect::<Result<Vec<ParseToken>, ParseError>>()?;
+
+        Result::Ok(PartialParse {
+            tokens,
+            labels: label_offsets,
+            is_void,
         })
-        .collect::<Result<Vec<ParseToken>, ParseError>>()
     }
+
     fn get_jump_instr(
         op: &str,
         label_names: &HashMap<String, usize>,
@@ -210,6 +227,10 @@ impl Parser {
             "jmp_le" => Result::Ok(Instr::JumpLe(*label_idx)),
             _ => Err(ParseError::UnknownInstr),
         }
+    }
+
+    fn resolve_parse(partial: PartialParse) -> Result<CodeObject> {
+        todo!()
     }
 }
 
@@ -235,7 +256,7 @@ mod tests {
 
     fn dbg_f(path: &str) {
         let parse = Parser::parse_file(path).unwrap();
-        println!("{:?}", parse);
+        println!("{:#?}", parse);
     }
 
     #[test]
