@@ -23,16 +23,16 @@ struct Vm {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeObject {
-    litpool: Vec<Value>,
-    argcount: usize,
-    is_void: bool,
+    pub(crate) litpool: Vec<Value>,
+    pub(crate) argcount: usize,
+    pub(crate) is_void: bool,
     // TODO: change to be num_locals? then the stack frame locals could be vec<value>
     // Worse debuggability
-    localnames: Vec<String>,
+    pub(crate) localnames: Vec<String>,
     /// Map from label index to an offset in the bytecode
-    labels: Vec<usize>,
+    pub(crate) labels: Vec<usize>,
 
-    code: Bytecode,
+    pub(crate) code: Bytecode,
 }
 
 /// An execution context for a code object

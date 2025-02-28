@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Ok, Result};
 
-use crate::bytecode::{BinOp, Instr, UnaryOp};
+use crate::bytecode::{BinOp, Bytecode, Instr, UnaryOp};
 use crate::vm::{CodeObject, Value};
 use crate::{is_valid_name, HASH_SIZE};
 
@@ -32,6 +32,7 @@ enum ParseError {
     InvalidIdent,
     InvalidHash,
     UnknownLabel,
+    NoFunctionDef,
 }
 
 #[derive(Debug)]
@@ -46,15 +47,22 @@ enum ParseToken {
     Lit(Value),
 }
 
+#[derive(Debug)]
+struct Parse {
+    func_name: String,
+    code_obj: CodeObject,
+}
+
 impl Parser {
-    pub fn parse_file<P: AsRef<Path>>(path: P) -> Result<CodeObject> {
+    pub fn parse_file<P: AsRef<Path>>(path: P) -> Result<Vec<Parse>> {
         let contents = fs::read_to_string(&path)?;
         let p = Parser {
             file: Some(path.as_ref().to_path_buf()),
             contents,
         };
+        // TODO: write a func_functions method and call parse_function on each function in the file
         let partial_parse = p.parse_function().map_err(anyhow::Error::msg)?;
-        Self::resolve_parse(partial_parse)
+        Ok(vec![Self::resolve_parse(partial_parse)?])
     }
 
     /// Parse the bytecode of a single function
@@ -229,8 +237,39 @@ impl Parser {
         }
     }
 
-    fn resolve_parse(partial: PartialParse) -> Result<CodeObject> {
-        todo!()
+    fn resolve_parse(partial: PartialParse) -> Result<Parse, ParseError> {
+        let (name, argcount) = partial
+            .tokens
+            .iter()
+            .find_map(|tok| {
+                if let ParseToken::FuncDef(name, arity) = tok {
+                    Some((name, *arity))
+                } else {
+                    None
+                }
+            })
+            .ok_or(ParseError::NoFunctionDef)?;
+
+        let code = partial
+            .tokens
+            .iter()
+            .filter_map(|token| match token {
+                ParseToken::Instr(instr) => Some(instr.clone()),
+                _ => None,
+            })
+            .collect();
+
+        Result::Ok(Parse {
+            func_name: name.to_owned(),
+            code_obj: CodeObject {
+                litpool: Vec::new(), // TODO
+                argcount,
+                is_void: partial.is_void,
+                localnames: Vec::new(),
+                labels: partial.labels,
+                code: Bytecode::new(code),
+            },
+        })
     }
 }
 
@@ -245,10 +284,13 @@ impl Display for ParseError {
             ParseError::InvalidIdent => "invalid identifier",
             ParseError::InvalidHash => "invalid hash",
             ParseError::UnknownLabel => "reference to undefined label",
+            ParseError::NoFunctionDef => "no function definition",
         };
         write!(f, "parser error: {msg}")
     }
 }
+
+impl std::error::Error for ParseError {}
 
 #[cfg(test)]
 mod tests {
