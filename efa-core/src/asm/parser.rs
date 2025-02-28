@@ -25,6 +25,7 @@ enum ParseError {
     SyntaxError,
     InvalidIdent,
     InvalidHash,
+    UnknownLabel,
 }
 
 #[derive(Debug)]
@@ -104,8 +105,6 @@ impl Parser {
                     if arg.chars().last().unwrap() != ':' {
                         return Result::Err(ParseError::SyntaxError);
                     }
-                    println!("arg: {arg}");
-                    println!("arg-2: {}", &arg[..arg.len() - 1]);
                     let arity: usize = arg[..arg.len() - 1]
                         .parse()
                         .map_err(|_| ParseError::InvalidArg)?;
@@ -120,22 +119,21 @@ impl Parser {
 
             if argument.is_none() && base.chars().last().unwrap() == ':' {
                 let label = base[..base.len() - 1].to_string();
-                println!("got label = {label}");
                 return Result::Ok(ParseToken::Label(label));
             }
 
             let int_argument = argument.map(|a| a.parse::<usize>().ok()).flatten();
             let hash_argument = argument.map(|a| hex::decode(a).ok()).flatten();
 
-            let instr = match (base, int_argument) {
-                ("load_arg", Some(arg)) => Instr::LoadArg(arg),
-                ("load_loc", Some(arg)) => Instr::LoadLocal(arg),
-                ("load_lit", Some(arg)) => Instr::LoadLit(arg),
-                ("str_loc", Some(arg)) => Instr::StoreLocal(arg),
-                ("pop", None) => Instr::Pop,
+            let instr = match (base, int_argument, argument) {
+                ("load_arg", Some(arg), None) => Instr::LoadArg(arg),
+                ("load_loc", Some(arg), None) => Instr::LoadLocal(arg),
+                ("load_lit", Some(arg), None) => Instr::LoadLit(arg),
+                ("str_loc", Some(arg), None) => Instr::StoreLocal(arg),
+                ("pop", None, None) => Instr::Pop,
 
                 // TODO
-                ("load_func", None) => {
+                ("load_func", None, None) => {
                     if let Some(hash) = hash_argument {
                         Instr::LoadFunc(
                             hash[..HASH_SIZE]
@@ -147,45 +145,51 @@ impl Parser {
                         return Err(ParseError::ExpectedArgument);
                     }
                 }
-                ("load_dyn", None) => {
+                ("load_dyn", None, None) => {
                     todo!()
                 }
 
-                ("call", None) => Instr::Call,
-                ("call_self", None) => Instr::CallSelf,
-                ("ret", None) => Instr::Return,
+                ("call", None, None) => Instr::Call,
+                ("call_self", None, None) => Instr::CallSelf,
+                ("ret", None, None) => Instr::Return,
 
-                // ("jmp", None) => Instr::Jump(arg),
-                // ("jmp_t", None) => Instr::JumpT(arg),
-                // ("jmp_f", None) => Instr::JumpF(arg),
-                // ("jmp_eq", None) => Instr::JumpEq(arg),
-                // ("jmp_gt", None) => Instr::JumpGt(arg),
-                // ("jmp_ge", None) => Instr::JumpGe(arg),
-                // ("jmp_lt", None) => Instr::JumpLt(arg),
-                // ("jmp_le", None) => Instr::JumpLe(arg),
-                ("add", None) => Instr::BinOp(BinOp::Add),
-                ("mul", None) => Instr::BinOp(BinOp::Mul),
-                ("div", None) => Instr::BinOp(BinOp::Div),
-                ("sub", None) => Instr::BinOp(BinOp::Sub),
-                ("mod", None) => Instr::BinOp(BinOp::Mod),
-                ("shl", None) => Instr::BinOp(BinOp::Shl),
-                ("shr", None) => Instr::BinOp(BinOp::Shr),
-                ("and", None) => Instr::BinOp(BinOp::And),
-                ("or", None) => Instr::BinOp(BinOp::Or),
-                ("eq", None) => Instr::BinOp(BinOp::Eq),
+                ("add", None, None) => Instr::BinOp(BinOp::Add),
+                ("mul", None, None) => Instr::BinOp(BinOp::Mul),
+                ("div", None, Some(arg)) => Instr::BinOp(BinOp::Div),
+                ("mod", None, Some(arg)) => Instr::BinOp(BinOp::Mod),
+                ("shl", None, Some(arg)) => Instr::BinOp(BinOp::Shl),
+                ("shr", None, Some(arg)) => Instr::BinOp(BinOp::Shr),
 
-                ("not", None) => Instr::UnaryOp(UnaryOp::Not),
-                ("neg", None) => Instr::UnaryOp(UnaryOp::Neg),
+                ("and", None, Some(arg)) => Instr::BinOp(BinOp::And),
+                ("or", None, Some(arg)) => Instr::BinOp(BinOp::Or),
+                ("eq", None, Some(arg)) => Instr::BinOp(BinOp::Eq),
 
-                ("dbg", None) => Instr::Dbg,
-                ("nop", None) => Instr::Nop,
-
+                ("not", None, Some(arg)) => Instr::UnaryOp(UnaryOp::Not),
+                ("neg", None, Some(arg)) => Instr::UnaryOp(UnaryOp::Neg),
                 _ => return Err(ParseError::UnknownInstr),
             };
 
             Result::Ok(ParseToken::Instr(instr))
         })
         .collect::<Result<Vec<ParseToken>, ParseError>>()
+    }
+    fn get_jump_instr(
+        op: &str,
+        label_names: &HashMap<&str, usize>,
+        arg: &str,
+    ) -> Result<Instr, ParseError> {
+        let label_idx = label_names.get(arg).ok_or(ParseError::UnknownLabel)?;
+        match op {
+            "jmp" => Result::Ok(Instr::Jump(*label_idx)),
+            "jmp_t" => Result::Ok(Instr::JumpT(*label_idx)),
+            "jmp_f" => Result::Ok(Instr::JumpF(*label_idx)),
+            "jmp_eq" => Result::Ok(Instr::JumpEq(*label_idx)),
+            "jmp_gt" => Result::Ok(Instr::JumpGt(*label_idx)),
+            "jmp_ge" => Result::Ok(Instr::JumpGe(*label_idx)),
+            "jmp_lt" => Result::Ok(Instr::JumpLt(*label_idx)),
+            "jmp_le" => Result::Ok(Instr::JumpLe(*label_idx)),
+            _ => Err(ParseError::UnknownInstr),
+        }
     }
 }
 
@@ -199,6 +203,7 @@ impl Display for ParseError {
             ParseError::SyntaxError => "syntax error",
             ParseError::InvalidIdent => "invalid identifier",
             ParseError::InvalidHash => "invalid hash",
+            ParseError::UnknownLabel => "reference to undefined label",
         };
         write!(f, "parser error: {msg}")
     }
