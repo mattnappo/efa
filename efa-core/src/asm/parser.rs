@@ -17,6 +17,7 @@ struct PartialParse {
     tokens: Vec<ParseToken>,
     labels: Vec<usize>,
     is_void: bool,
+    literals: Vec<Value>,
 }
 
 #[derive(Debug)]
@@ -32,6 +33,7 @@ enum ParseError {
     UnknownLabel,
     NoFunctionDef,
     InvalidFuncDef,
+    InvalidLiteral,
 }
 
 #[derive(Debug)]
@@ -150,10 +152,66 @@ impl Parser {
         Result::Ok((label_names, label_offsets))
     }
 
+    fn get_literals(function: &str) -> Result<Vec<Value>, ParseError> {
+        let code = function.lines();
+
+        code.filter(|line| line.chars().nth(0).unwrap() == '#')
+            .filter_map(|line| {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() != 2 {
+                    return Some(Err(ParseError::ExpectedArgument));
+                }
+
+                let first = parts[0];
+                let arg = parts[1];
+                let arg_chars: Vec<char> = arg.chars().collect();
+
+                let opcode = &first[1..];
+                if opcode != "lit" {
+                    return Some(Err(ParseError::InvalidLiteral));
+                }
+
+                // Bool case
+                if arg == "true" {
+                    return Some(Result::Ok(Value::Bool(true)));
+                }
+                if arg == "false" {
+                    return Some(Result::Ok(Value::Bool(false)));
+                }
+
+                // String case
+                if arg_chars[0] == '"' && arg_chars[arg.len() - 1] == '"' {
+                    let lit = &arg[1..arg.len() - 1];
+                    return Some(Result::Ok(Value::string(lit)));
+                }
+
+                // Hash case
+                if &arg[..2] == "0x" {
+                    return Some(
+                        hex::decode(&arg[..2])
+                            .map_err(|_| ParseError::InvalidHash)
+                            .and_then(|bytes| {
+                                Value::hash(bytes).map_err(|_| ParseError::InvalidHash)
+                            }),
+                    );
+                }
+
+                // Int case
+                if let Result::Ok(int) = arg.parse::<i32>() {
+                    return Some(Result::Ok(Value::I32(int)));
+                }
+
+                None
+            })
+            .collect::<Result<Vec<Value>, ParseError>>()
+    }
+
     /// Parse the bytecode of a single function
     pub fn parse_function(function: &str) -> Result<PartialParse, ParseError> {
         let code = function.lines();
         let (label_names, label_offsets) = Self::get_labels(function)?;
+        let literals = Self::get_literals(function)?;
+        let code = function.lines().filter(|line| !line.contains("#"));
 
         let mut is_void: bool = false;
         let tokens = code
@@ -259,6 +317,7 @@ impl Parser {
             tokens,
             labels: label_offsets,
             is_void,
+            literals,
         })
     }
 
@@ -307,7 +366,7 @@ impl Parser {
         Result::Ok(Parse {
             func_name: name.to_owned(),
             code_obj: CodeObject {
-                litpool: Vec::new(), // TODO
+                litpool: partial.literals,
                 argcount,
                 is_void: partial.is_void,
                 localnames: Vec::new(),
@@ -331,6 +390,7 @@ impl Display for ParseError {
             ParseError::UnknownLabel => "reference to undefined label",
             ParseError::NoFunctionDef => "no function definition",
             ParseError::InvalidFuncDef => "invalid function definition",
+            ParseError::InvalidLiteral => "invalid literal definition",
         };
         write!(f, "parser error: {msg}")
     }
@@ -349,8 +409,9 @@ mod tests {
 
     #[test]
     fn test_1() {
-        dbg_f("./examples/fib.asm");
+        // dbg_f("./examples/fib.asm");
         // dbg_f("./examples/labels.asm");
+        dbg_f("./examples/lits.asm");
     }
 
     #[test]

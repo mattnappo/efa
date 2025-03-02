@@ -72,6 +72,13 @@ impl Value {
     pub fn string(s: &str) -> Value {
         Value::String(s.to_string())
     }
+
+    pub fn hash(hash: Vec<u8>) -> Result<Value> {
+        let trunc: [u8; HASH_SIZE] = (&hash[0..HASH_SIZE])
+            .try_into()
+            .map_err(|_| anyhow!("failed to truncate vector for hash"))?;
+        Ok(Value::Hash(trunc))
+    }
 }
 
 impl PartialOrd for Value {
