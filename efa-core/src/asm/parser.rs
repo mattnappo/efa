@@ -10,11 +10,9 @@ use crate::bytecode::{BinOp, Bytecode, Instr, UnaryOp};
 use crate::vm::{CodeObject, Value};
 use crate::{is_valid_name, HASH_SIZE};
 
-pub struct Parser {
-    file: Option<PathBuf>,
-    contents: String,
-}
+pub struct Parser;
 
+#[derive(Debug)]
 struct PartialParse {
     tokens: Vec<ParseToken>,
     labels: Vec<usize>,
@@ -56,22 +54,66 @@ struct Parse {
 impl Parser {
     pub fn parse_file<P: AsRef<Path>>(path: P) -> Result<Vec<Parse>> {
         let contents = fs::read_to_string(&path)?;
-        let p = Parser {
-            file: Some(path.as_ref().to_path_buf()),
-            contents,
-        };
-        // TODO: write a func_functions method and call parse_function on each function in the file
-        let partial_parse = p.parse_function().map_err(anyhow::Error::msg)?;
-        Ok(vec![Self::resolve_parse(partial_parse)?])
+        let functions = Self::split_functions(&contents).map_err(anyhow::Error::msg)?;
+        functions
+            .into_iter()
+            .map(|func| {
+                Self::parse_function(&func)
+                    .and_then(Self::resolve_parse)
+                    .map_err(anyhow::Error::msg)
+            })
+            .collect::<Result<Vec<Parse>>>()
+    }
+
+    fn is_func_def(line: &str) -> bool {
+        let parts = line.split_whitespace().collect::<Vec<&str>>();
+        if parts.len() != 2 {
+            return false;
+        }
+
+        let name = parts[0];
+        let arg = parts[1];
+
+        let d = name.chars().nth(0).unwrap();
+        let c = arg.chars().last().unwrap();
+
+        if d == '$' && c == ':' {
+            // Now it should be a function def line
+            let name = &name[1..];
+            let arity = &arg[..arg.len() - 1];
+            return is_valid_name(name) && arity.parse::<usize>().is_ok();
+        }
+        false
+    }
+
+    fn split_functions(contents: &str) -> Result<Vec<String>> {
+        Ok(contents
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| l.trim())
+            .fold(vec![], |mut acc, line| {
+                if Self::is_func_def(line) {
+                    acc.push(vec![line]);
+                } else if let Some(last) = acc.last_mut() {
+                    last.push(line);
+                } else {
+                    acc.push(vec![line])
+                }
+                acc
+            })
+            .into_iter()
+            .map(|func| func.join("\n"))
+            .collect())
     }
 
     /// Parse the bytecode of a single function
-    pub fn parse_function(&self) -> Result<PartialParse, ParseError> {
-        let code = self.contents.lines().filter(|l| !l.is_empty());
+    pub fn parse_function(function: &str) -> Result<PartialParse, ParseError> {
+        let code = function.lines();
 
         // Want a map from label names (L0, L1) to label number
         // And an array of offsets (where index is label number)
         let mut j = 0;
+        // TODO: factor out into own method
         let (label_names, label_offsets): (HashMap<String, usize>, Vec<usize>) = code
             .clone()
             .enumerate()
@@ -148,11 +190,11 @@ impl Parser {
                     argument
                 };
 
-                dbg!(&l);
-                dbg!(&argument);
-                dbg!(&int_argument);
-                dbg!(&hash_argument);
-                dbg!(&str_argument);
+                // dbg!(&l);
+                // dbg!(&argument);
+                // dbg!(&int_argument);
+                // dbg!(&hash_argument);
+                // dbg!(&str_argument);
 
                 let instr = match (base, int_argument, str_argument) {
                     ("load_arg", Some(arg), None) => Instr::LoadArg(arg),
@@ -305,5 +347,13 @@ mod tests {
     fn test_1() {
         dbg_f("./examples/fib.asm");
         // dbg_f("./examples/labels.asm");
+    }
+
+    #[test]
+    fn test_is_funcdef() {
+        assert!(Parser::is_func_def("$fib 3:"));
+        assert!(Parser::is_func_def("$fibb 33:"));
+        assert!(!Parser::is_func_def("$fibb 33"));
+        assert!(!Parser::is_func_def("fibb 99:"));
     }
 }
