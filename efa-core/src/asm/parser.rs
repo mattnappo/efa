@@ -31,6 +31,7 @@ enum ParseError {
     InvalidHash,
     UnknownLabel,
     NoFunctionDef,
+    InvalidFuncDef,
 }
 
 #[derive(Debug)]
@@ -65,10 +66,10 @@ impl Parser {
             .collect::<Result<Vec<Parse>>>()
     }
 
-    fn is_func_def(line: &str) -> bool {
+    fn is_func_def(line: &str) -> Option<Result<(String, usize), ParseError>> {
         let parts = line.split_whitespace().collect::<Vec<&str>>();
         if parts.len() != 2 {
-            return false;
+            return None;
         }
 
         let name = parts[0];
@@ -81,18 +82,23 @@ impl Parser {
             // Now it should be a function def line
             let name = &name[1..];
             let arity = &arg[..arg.len() - 1];
-            return is_valid_name(name) && arity.parse::<usize>().is_ok();
+            let parsed = arity.parse::<usize>();
+            if is_valid_name(name) && parsed.is_ok() {
+                return Some(Result::Ok((name.to_string(), parsed.unwrap())));
+            } else {
+                return Some(Err(ParseError::InvalidFuncDef));
+            }
         }
-        false
+        None
     }
 
-    fn split_functions(contents: &str) -> Result<Vec<String>> {
-        Ok(contents
+    fn split_functions(file_contents: &str) -> Result<Vec<String>> {
+        Ok(file_contents
             .lines()
             .filter(|l| !l.is_empty())
             .map(|l| l.trim())
             .fold(vec![], |mut acc, line| {
-                if Self::is_func_def(line) {
+                if Self::is_func_def(line).is_some() {
                     acc.push(vec![line]);
                 } else if let Some(last) = acc.last_mut() {
                     last.push(line);
@@ -106,15 +112,13 @@ impl Parser {
             .collect())
     }
 
-    /// Parse the bytecode of a single function
-    pub fn parse_function(function: &str) -> Result<PartialParse, ParseError> {
-        let code = function.lines();
-
+    fn get_labels(function: &str) -> Result<(HashMap<String, usize>, Vec<usize>), ParseError> {
         // Want a map from label names (L0, L1) to label number
         // And an array of offsets (where index is label number)
         let mut j = 0;
-        // TODO: factor out into own method
-        let (label_names, label_offsets): (HashMap<String, usize>, Vec<usize>) = code
+
+        let result = function
+            .lines()
             .clone()
             .enumerate()
             .filter_map(|(i, line)| {
@@ -122,66 +126,64 @@ impl Parser {
                 if parts.len() != 1 {
                     return None;
                 }
-                let word = parts[0];
 
+                let word = parts[0];
                 if word.chars().last().unwrap() != ':' {
                     return None;
                 }
 
                 let label = &word[0..word.len() - 1];
-
-                // TODO
-                // if !is_valid_name(label) {
-                //     return Result::Err(ParseError::InvalidIdent);
-                // }
-
+                if !is_valid_name(label) {
+                    return Some(Result::Err(ParseError::InvalidIdent));
+                }
                 j += 1;
-                Some((label.to_string(), i - j))
+                Some(Result::Ok((label.to_string(), i - j)))
             })
+            .collect::<Result<Vec<(String, usize)>, ParseError>>()?;
+
+        let (label_names, label_offsets) = result
+            .into_iter()
             .enumerate()
             .map(|(i, (name, offset))| ((name, i), offset))
             .unzip();
 
-        let mut is_void: bool = false;
+        Result::Ok((label_names, label_offsets))
+    }
 
+    /// Parse the bytecode of a single function
+    pub fn parse_function(function: &str) -> Result<PartialParse, ParseError> {
+        let code = function.lines();
+        let (label_names, label_offsets) = Self::get_labels(function)?;
+
+        let mut is_void: bool = false;
         let tokens = code
-            .map(|l| {
-                let parts = l.split_whitespace().collect::<Vec<&str>>();
-                dbg!(&parts);
+            .map(|line| {
+                let parts = line.split_whitespace().collect::<Vec<&str>>();
                 if parts.len() > 2 {
                     return Err(ParseError::UnexpectedArgument);
                 }
 
                 let base = parts[0];
-                let argument = parts.get(1).copied();
+                let argument = parts.get(1);
 
-                // If line starts with a $, it is a function
-                // Else if line otherwise ends with a colon, it is a label
-                // Else, it is an instruction
-                let base_first_char = base.chars().nth(0).unwrap(); // todo; remove this unwrap
-                match (base_first_char, argument) {
-                    ('$', Some(arg)) => {
-                        let func_name = &base[1..];
-                        if arg.chars().last().unwrap() != ':' {
-                            return Result::Err(ParseError::SyntaxError);
-                        }
-                        let arity: usize = arg[..arg.len() - 1]
-                            .parse()
-                            .map_err(|_| ParseError::InvalidArg)?;
-                        if !is_valid_name(func_name) {
-                            return Result::Err(ParseError::InvalidIdent);
-                        }
-                        return Result::Ok(ParseToken::FuncDef(func_name.to_string(), arity));
+                // Line is a function definition, or an incorrect function definition
+                match Self::is_func_def(line) {
+                    Some(Result::Ok((name, arity))) => {
+                        return Result::Ok(ParseToken::FuncDef(name, arity));
                     }
-                    ('$', None) => return Result::Err(ParseError::ExpectedArgument),
-                    _ => {}
+                    Some(Err(e)) => return Err(e),
+                    None => {}
                 };
 
+                // Line is a label
                 if argument.is_none() && base.chars().last().unwrap() == ':' {
                     let label = base[..base.len() - 1].to_string();
                     return Result::Ok(ParseToken::Label(label));
                 }
 
+                // Line is an instruction
+
+                // Setup arguments
                 let int_argument = argument.map(|a| a.parse::<usize>().ok()).flatten();
                 let hash_argument = argument.map(|a| hex::decode(a).ok()).flatten(); // Remove the 0x
                 let str_argument = if int_argument.is_some() {
@@ -196,6 +198,7 @@ impl Parser {
                 // dbg!(&hash_argument);
                 // dbg!(&str_argument);
 
+                // Decode instruction
                 let instr = match (base, int_argument, str_argument) {
                     ("load_arg", Some(arg), None) => Instr::LoadArg(arg),
                     ("load_loc", Some(arg), None) => Instr::LoadLocal(arg),
@@ -327,6 +330,7 @@ impl Display for ParseError {
             ParseError::InvalidHash => "invalid hash",
             ParseError::UnknownLabel => "reference to undefined label",
             ParseError::NoFunctionDef => "no function definition",
+            ParseError::InvalidFuncDef => "invalid function definition",
         };
         write!(f, "parser error: {msg}")
     }
@@ -351,9 +355,15 @@ mod tests {
 
     #[test]
     fn test_is_funcdef() {
-        assert!(Parser::is_func_def("$fib 3:"));
-        assert!(Parser::is_func_def("$fibb 33:"));
-        assert!(!Parser::is_func_def("$fibb 33"));
-        assert!(!Parser::is_func_def("fibb 99:"));
+        assert!(matches!(
+            Parser::is_func_def("$fib 3:"),
+            Some(Result::Ok(_))
+        ));
+        assert!(matches!(
+            Parser::is_func_def("$fibb 33:"),
+            Some(Result::Ok(_))
+        ));
+        assert!(matches!(Parser::is_func_def("$fibb 33"), None));
+        assert!(matches!(Parser::is_func_def("fibb 99:"), None));
     }
 }
