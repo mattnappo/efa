@@ -14,11 +14,11 @@ use crate::{Hash, HASH_SIZE};
 const STACK_CAP: usize = 256;
 
 #[derive(Debug)]
-struct Vm {
+pub struct Vm {
     call_stack: Vec<StackFrame>,
     data_stack_cap: usize,
     call_stack_cap: usize,
-    db: Database,
+    pub db: Database, // TODO: should not be pub
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,6 +97,7 @@ impl Ord for Value {
 }
 
 impl Vm {
+    /// Create an in-memory VM
     pub fn new() -> Result<Vm> {
         Ok(Vm {
             call_stack: Vec::new(),
@@ -106,6 +107,7 @@ impl Vm {
         })
     }
 
+    /// Start a VM with a persistent DB
     pub fn initialize<P: AsRef<Path>>(path: P) -> Result<Vm> {
         Ok(Vm {
             call_stack: Vec::new(),
@@ -170,6 +172,7 @@ impl Vm {
                     stack.push(frame.locals[arg_name].clone());
                 }
                 Instr::LoadLit(i) => {
+                    // TODO: throw err with out of bounds
                     stack.push(frame.code_obj.litpool[i].clone());
                 }
                 Instr::StoreLocal(i) => {
@@ -207,6 +210,9 @@ impl Vm {
                                 }
                                 Ok((name.to_owned(), stack.pop().unwrap()))
                             }).collect();
+
+                        // println!("argc = {:?}", code_obj.argcount);
+                        // println!("params = {:?}", params);
 
                         // Construct a new stackframe
                         let new_frame = StackFrame {
@@ -403,7 +409,7 @@ impl Vm {
                 Instr::MakeStruct => {}
 
                 Instr::Dbg => {
-                    let tos = stack.pop().unwrap();
+                    let tos = stack.last().unwrap();
                     dbg!(tos);
                 }
                 Instr::Nop => {}

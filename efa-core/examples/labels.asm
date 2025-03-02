@@ -1,4 +1,7 @@
 $fib 1:
+    #lit 0
+    #lit 1
+    #lit 2
     load_arg 0
     load_lit 0
     eq

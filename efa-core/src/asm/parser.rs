@@ -49,9 +49,9 @@ enum ParseToken {
 }
 
 #[derive(Debug)]
-struct Parse {
-    func_name: String,
-    code_obj: CodeObject,
+pub struct Parse {
+    pub func_name: String,
+    pub code_obj: CodeObject,
 }
 
 impl Parser {
@@ -186,7 +186,7 @@ impl Parser {
                 }
 
                 // Hash case
-                if &arg[..2] == "0x" {
+                if arg.len() >= 2 && &arg[..2] == "0x" {
                     return Some(
                         hex::decode(&arg[..2])
                             .map_err(|_| ParseError::InvalidHash)
@@ -208,10 +208,14 @@ impl Parser {
 
     /// Parse the bytecode of a single function
     pub fn parse_function(function: &str) -> Result<PartialParse, ParseError> {
-        let code = function.lines();
-        let (label_names, label_offsets) = Self::get_labels(function)?;
         let literals = Self::get_literals(function)?;
-        let code = function.lines().filter(|line| !line.contains("#"));
+        let code = function
+            .lines()
+            .filter(|line| !line.contains("#"))
+            .collect::<Vec<&str>>()
+            .join("\n");
+        let (label_names, label_offsets) = Self::get_labels(&code)?;
+        let code = code.lines();
 
         let mut is_void: bool = false;
         let tokens = code
@@ -306,6 +310,9 @@ impl Parser {
 
                     ("not", None, None) => Instr::UnaryOp(UnaryOp::Not),
                     ("neg", None, None) => Instr::UnaryOp(UnaryOp::Neg),
+
+                    ("nop", None, None) => Instr::Nop,
+                    ("dbg", None, None) => Instr::Dbg,
                     _ => return Err(ParseError::UnknownInstr),
                 };
 
@@ -326,7 +333,6 @@ impl Parser {
         label_names: &HashMap<String, usize>,
         arg: &str,
     ) -> Result<Instr, ParseError> {
-        dbg!(&label_names);
         let label_idx = label_names.get(arg).ok_or(ParseError::UnknownLabel)?;
         match op {
             "jmp" => Result::Ok(Instr::Jump(*label_idx)),
@@ -363,13 +369,19 @@ impl Parser {
             })
             .collect();
 
+        let localnames = (0..=argcount)
+            .collect::<Vec<usize>>()
+            .into_iter()
+            .map(|t| format!("x{t}"))
+            .collect();
+
         Result::Ok(Parse {
             func_name: name.to_owned(),
             code_obj: CodeObject {
                 litpool: partial.literals,
                 argcount,
                 is_void: partial.is_void,
-                localnames: Vec::new(),
+                localnames,
                 labels: partial.labels,
                 code: Bytecode::new(code),
             },

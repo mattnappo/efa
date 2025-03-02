@@ -3,6 +3,10 @@ name = "efa-core"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+path = "./src/asm/asm.rs"
+name = "as"
+
 [dependencies]
 anyhow = "1.0.95"
 hex = "0.4.3"
@@ -13,3 +17,4 @@ rusqlite = { version = "0.33.0", features = ["bundled"] }
 tempfile = "3.17.1"
 rand = "0.9.0"
 syn = "2.0.98"
+clap = { version = "4.5.31", features = ["derive"] }
