@@ -47,13 +47,13 @@ impl<'a> DepGraph<'_> {
             .filter_map(|pair| match (pair[0], pair[1]) {
                 // Want to return dependences (name, hash)
                 (Instr::LoadFunc(hash), Instr::Call) => {
-                    // TODO: remove these unwraps
-                    let name = self.db.get_name_of_hash(hash).ok().flatten();
+                    // Result<Option<String>>
+                    let name = self.db.get_name_of_hash(hash);
                     Some((name, *hash))
                 }
                 (Instr::LoadDyn(name), Instr::Call) => {
                     let (hash, _) = self.db.get_code_object_by_name(name).unwrap();
-                    Some((Some(name.to_string()), hash))
+                    Some((Ok(Some(name.to_string())), hash))
                 }
                 (_, Instr::Call) => {
                     calls_self = true;
@@ -62,10 +62,9 @@ impl<'a> DepGraph<'_> {
                 _ => None,
             })
             .map(|(name, hash)| {
-                Ok((
-                    name.ok_or_else(|| anyhow::anyhow!("hash 0x{} has no name", hex::encode(hash))),
-                    hash,
-                ))
+                let n = name?
+                    .ok_or_else(|| anyhow::anyhow!("hash 0x{} has no name", hex::encode(hash)))?;
+                Ok((n, hash))
             })
             .collect::<Result<Vec<_>>>()?;
 
