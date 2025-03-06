@@ -228,6 +228,18 @@ impl Database {
         let res = query_result.into_iter().next().transpose();
         Ok(res?)
     }
+
+    pub fn get_functions(&self) -> Result<Vec<(String, Hash)>> {
+        let mut stmt = self.conn.prepare("SELECT name, hash FROM names;")?;
+
+        let query_result = stmt.query_map([], |row| {
+            let name = row.get(0)?;
+            let hash = row.get(1)?;
+            Ok((name, hash))
+        })?;
+        let res = query_result.collect::<rusqlite::Result<_>>()?;
+        Ok(res)
+    }
 }
 
 #[cfg(test)]

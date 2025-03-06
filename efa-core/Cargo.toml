@@ -18,3 +18,4 @@ tempfile = "3.17.1"
 rand = "0.9.0"
 syn = "2.0.98"
 clap = { version = "4.5.31", features = ["derive"] }
+derivative = "2.2.0"

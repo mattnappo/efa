@@ -2,16 +2,23 @@
 //! Nodes are functions, directed edges are calls, and the root node is a main function.
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use anyhow::Result;
+use derivative::Derivative;
 
 use crate::bytecode::Instr;
 use crate::db::Database;
+use crate::vm::CodeObject;
 use crate::Hash;
 
+#[derive(Derivative)]
+#[derivative(Hash, PartialEq, Eq)]
 struct Node {
     hash: Hash,
     name: String,
+    #[derivative(Hash = "ignore", PartialEq = "ignore")]
+    code_object: Box<CodeObject>,
 }
 
 pub struct DepGraph<'a> {
@@ -29,8 +36,33 @@ impl<'a> DepGraph<'_> {
     }
 
     pub fn solve_static(&mut self) -> Result<()> {
-        let (main_hash, main_obj) = self.db.get_main_object()?;
-        let code = main_obj
+        let (hash, obj) = self.db.get_main_object()?;
+
+        let main_node = Node {
+            name: "main".to_string(),
+            hash,
+            code_object: Box::new(obj),
+        };
+
+        // make a set of solved nodes
+
+        let deps = self.solve_node(&main_node)?;
+        /*
+        for dep in deps {
+            if dep not already solved (dep not in set) {
+                solve(dep)
+            }
+        }
+        */
+
+        // Aggregate into self.deps
+        Ok(())
+    }
+
+    /// Return the dependences of the given node
+    fn solve_node(&self, node: &Node) -> Result<HashSet<Node>> {
+        let obj = self.db.get_code_object(&node.hash)?;
+        let code = obj
             .code
             .iter()
             .filter(|instr| match instr {
@@ -39,10 +71,8 @@ impl<'a> DepGraph<'_> {
             })
             .collect::<Vec<&Instr>>();
 
-        let mut calls_self = false;
-
         // Check that each Instr::Call is preceded by a LoadFunc/LoadDyn
-        let deps = &code[..]
+        let deps = code[..]
             .windows(2)
             .filter_map(|pair| match (pair[0], pair[1]) {
                 // Want to return dependences (name, hash)
@@ -52,25 +82,25 @@ impl<'a> DepGraph<'_> {
                     Some((name, *hash))
                 }
                 (Instr::LoadDyn(name), Instr::Call) => {
-                    let (hash, _) = self.db.get_code_object_by_name(name).unwrap();
+                    let (hash, obj) = self.db.get_code_object_by_name(name).unwrap();
                     Some((Ok(Some(name.to_string())), hash))
                 }
-                (_, Instr::Call) => {
-                    calls_self = true;
-                    None
-                }
+                (_, Instr::Call) => Some((Ok(Some(node.name)), node.hash)),
                 _ => None,
             })
             .map(|(name, hash)| {
                 let n = name?
                     .ok_or_else(|| anyhow::anyhow!("hash 0x{} has no name", hex::encode(hash)))?;
-                Ok((n, hash))
+                let code_object = Box::new(self.db.get_code_object(&hash)?);
+                Ok(Node {
+                    name: n,
+                    hash,
+                    code_object,
+                })
             })
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<Result<HashSet<_>>>()?;
 
-        dbg!(deps);
-
-        Ok(())
+        Ok(deps)
     }
 }
 
