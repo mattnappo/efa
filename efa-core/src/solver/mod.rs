@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 
+use crate::bytecode::Instr;
 use crate::db::Database;
 use crate::Hash;
 
@@ -27,10 +28,50 @@ impl<'a> DepGraph<'_> {
         }
     }
 
-    pub fn solve(&mut self) -> Result<()> {
-        let main = self.db.get_main_object()?;
-        dbg!(main);
-        todo!()
+    pub fn solve_static(&mut self) -> Result<()> {
+        let (main_hash, main_obj) = self.db.get_main_object()?;
+        let code = main_obj
+            .code
+            .iter()
+            .filter(|instr| match instr {
+                Instr::Call | Instr::CallSelf | Instr::LoadFunc(_) | Instr::LoadDyn(_) => true,
+                _ => false,
+            })
+            .collect::<Vec<&Instr>>();
+
+        let mut calls_self = false;
+
+        // Check that each Instr::Call is preceded by a LoadFunc/LoadDyn
+        let deps = &code[..]
+            .windows(2)
+            .filter_map(|pair| match (pair[0], pair[1]) {
+                // Want to return dependences (name, hash)
+                (Instr::LoadFunc(hash), Instr::Call) => {
+                    // TODO: remove these unwraps
+                    let name = self.db.get_name_of_hash(hash).ok().flatten();
+                    Some((name, *hash))
+                }
+                (Instr::LoadDyn(name), Instr::Call) => {
+                    let (hash, _) = self.db.get_code_object_by_name(name).unwrap();
+                    Some((Some(name.to_string()), hash))
+                }
+                (_, Instr::Call) => {
+                    calls_self = true;
+                    None
+                }
+                _ => None,
+            })
+            .map(|(name, hash)| {
+                Ok((
+                    name.ok_or_else(|| anyhow::anyhow!("hash 0x{} has no name", hex::encode(hash))),
+                    hash,
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        dbg!(deps);
+
+        Ok(())
     }
 }
 
@@ -44,8 +85,17 @@ mod tests {
     fn mock_db() -> Result<Database> {
         let db = Database::temp()?;
 
-        let obj = init_code_obj(bytecode![Instr::Nop, Instr::Return]);
-        db.insert_code_object_with_name(&obj, "main")?;
+        let foo = init_code_obj(bytecode![Instr::CallSelf, Instr::Return]);
+
+        let hash_foo = db.insert_code_object_with_name(&foo, "foo")?;
+
+        let main = init_code_obj(bytecode![
+            Instr::LoadFunc(hash_foo),
+            Instr::Call,
+            Instr::CallSelf,
+            Instr::Return
+        ]);
+        db.insert_code_object_with_name(&main, "main")?;
 
         Ok(db)
     }
@@ -55,6 +105,6 @@ mod tests {
         let db = mock_db().unwrap();
         let mut g = DepGraph::new(&db);
 
-        g.solve().unwrap();
+        g.solve_static().unwrap();
     }
 }

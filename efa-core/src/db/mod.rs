@@ -214,6 +214,20 @@ impl Database {
 
         Ok((hash, self.get_code_object(&hash)?))
     }
+
+    pub fn get_name_of_hash(&self, hash: &Hash) -> Result<Option<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT name FROM names WHERE hash = ?1;")?;
+
+        let query_result = stmt.query_map([hash], |row| {
+            let name = row.get(0)?;
+            Ok(name)
+        })?;
+
+        let res = query_result.into_iter().next().transpose();
+        Ok(res?)
+    }
 }
 
 #[cfg(test)]
@@ -292,5 +306,16 @@ pub mod tests {
         let hash = init_code_obj(bytecode![]).hash().unwrap();
 
         db.create_alias("name_2", &hash).unwrap();
+    }
+
+    #[test]
+    fn test_name_of_hash() {
+        let db = Database::temp().unwrap();
+        let obj = init_code_obj(bytecode![Instr::Return]);
+
+        let hash = db.insert_code_object_with_name(&obj, "func_name").unwrap();
+
+        let name = db.get_name_of_hash(&hash).unwrap();
+        assert_eq!(name, Some("func_name".to_string()));
     }
 }
