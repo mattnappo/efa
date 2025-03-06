@@ -5,24 +5,20 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use anyhow::Result;
-use derivative::Derivative;
 
 use crate::bytecode::Instr;
 use crate::db::Database;
-use crate::vm::CodeObject;
 use crate::Hash;
 
-#[derive(Derivative)]
-#[derivative(Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct Node {
     hash: Hash,
     name: String,
-    #[derivative(Hash = "ignore", PartialEq = "ignore")]
-    code_object: Box<CodeObject>,
 }
 
+#[derive(Debug)]
 pub struct DepGraph<'a> {
-    graph: HashMap<Node, Node>,
+    graph: HashMap<Node, HashSet<Node>>,
 
     db: &'a Database,
 }
@@ -41,21 +37,29 @@ impl<'a> DepGraph<'_> {
         let main_node = Node {
             name: "main".to_string(),
             hash,
-            code_object: Box::new(obj),
         };
 
-        // make a set of solved nodes
+        let nodes = self
+            .db
+            .get_functions()?
+            .into_iter()
+            .map(|(name, hash)| Node { name, hash })
+            .collect::<HashSet<_>>();
 
-        let deps = self.solve_node(&main_node)?;
-        /*
-        for dep in deps {
-            if dep not already solved (dep not in set) {
-                solve(dep)
+        // Seen nodes
+        let mut solved = HashSet::<Node>::new();
+
+        // TODO: remove these clones
+        for node in nodes {
+            if !solved.contains(&node) {
+                let deps = self.solve_node(&node)?;
+                solved.insert(node.clone());
+                self.graph.insert(node.clone(), deps);
+            } else {
+                println!("already solved {:?}", node);
             }
         }
-        */
 
-        // Aggregate into self.deps
         Ok(())
     }
 
@@ -72,7 +76,7 @@ impl<'a> DepGraph<'_> {
             .collect::<Vec<&Instr>>();
 
         // Check that each Instr::Call is preceded by a LoadFunc/LoadDyn
-        let deps = code[..]
+        let mut deps = code[..]
             .windows(2)
             .filter_map(|pair| match (pair[0], pair[1]) {
                 // Want to return dependences (name, hash)
@@ -82,25 +86,39 @@ impl<'a> DepGraph<'_> {
                     Some((name, *hash))
                 }
                 (Instr::LoadDyn(name), Instr::Call) => {
-                    let (hash, obj) = self.db.get_code_object_by_name(name).unwrap();
+                    let (hash, _) = self.db.get_code_object_by_name(name).unwrap();
                     Some((Ok(Some(name.to_string())), hash))
                 }
-                (_, Instr::Call) => Some((Ok(Some(node.name)), node.hash)),
                 _ => None,
             })
             .map(|(name, hash)| {
                 let n = name?
                     .ok_or_else(|| anyhow::anyhow!("hash 0x{} has no name", hex::encode(hash)))?;
-                let code_object = Box::new(self.db.get_code_object(&hash)?);
-                Ok(Node {
-                    name: n,
-                    hash,
-                    code_object,
-                })
+                Ok(Node { name: n, hash })
             })
             .collect::<Result<HashSet<_>>>()?;
 
+        if code.contains(&&Instr::CallSelf) {
+            deps.insert(node.clone());
+        }
+
         Ok(deps)
+    }
+}
+
+impl<'a> std::fmt::Display for DepGraph<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let names = self
+            .graph
+            .iter()
+            .map(|(node, deps)| {
+                (
+                    &node.name,
+                    deps.iter().map(|dep| &dep.name).collect::<HashSet<_>>(),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        write!(f, "{names:?}")
     }
 }
 
@@ -130,10 +148,12 @@ mod tests {
     }
 
     #[test]
-    fn test_() {
+    fn test_solver() {
         let db = mock_db().unwrap();
         let mut g = DepGraph::new(&db);
 
         g.solve_static().unwrap();
+
+        println!("{g}");
     }
 }

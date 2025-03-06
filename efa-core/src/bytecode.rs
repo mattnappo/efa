@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::Hash;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BinOp {
     Add,
     Mul,
@@ -21,13 +21,13 @@ pub enum BinOp {
     // BitXor,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UnaryOp {
     Not,
     Neg,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Instr {
     LoadArg(usize),
     LoadLocal(usize),
