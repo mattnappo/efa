@@ -2,6 +2,7 @@
 pub mod bytecode;
 pub mod asm;
 pub mod db;
+#[allow(dead_code)]
 pub mod solver;
 pub mod vm;
 
@@ -13,6 +14,15 @@ pub type Hash = [u8; HASH_SIZE];
 fn is_valid_name(name: &str) -> bool {
     // A name is valid if it is a valid Rust identifier
     syn::parse_str::<syn::Ident>(name).is_ok()
+}
+
+// TODO: convert all grep ..HASH_SIZE] to use this method
+fn build_hash(hash: Vec<u8>) -> anyhow::Result<Hash> {
+    let trunc: [u8; HASH_SIZE] = (&hash[0..HASH_SIZE])
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("failed to truncate vector for hash"))?;
+
+    Ok(trunc)
 }
 
 #[cfg(test)]

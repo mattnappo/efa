@@ -3,7 +3,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::build_hash;
 use crate::{is_valid_name, vm::CodeObject, Hash, HASH_SIZE};
+
 use anyhow::{bail, Result};
 use rusqlite::{params, Connection, OpenFlags};
 
@@ -53,6 +55,7 @@ impl Database {
                 id INTEGER PRIMARY KEY,
                 hash BLOB UNIQUE,
                 code_obj BLOB UNIQUE,
+                is_main INTEGER DEFAULT (0),
                 time DATETIME
             );
         "#,
@@ -100,13 +103,13 @@ impl Database {
         Ok(())
     }
 
-    fn insert_code_object(&self, code_obj: &CodeObject) -> Result<Hash> {
+    fn insert_code_object(&self, code_obj: &CodeObject, is_main: bool) -> Result<Hash> {
         let obj = rmp_serde::to_vec(code_obj)?;
         let hash = code_obj.hash()?;
 
         self.conn.execute(
-            "INSERT INTO code_objs (hash, code_obj, time) VALUES (?1, ?2, CURRENT_TIMESTAMP);",
-            params![hash, obj],
+            "INSERT INTO code_objs (hash, code_obj, is_main, time) VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP);",
+            params![hash, obj, is_main as u8],
         )?;
 
         Ok(hash)
@@ -117,7 +120,7 @@ impl Database {
             bail!("cannot insert code object with invalid name '{name}'");
         }
 
-        let hash = self.insert_code_object(code_obj)?;
+        let hash = self.insert_code_object(code_obj, name == "main")?;
 
         self.conn.execute(
             "INSERT INTO names (name, hash, time) VALUES (?1, ?2, CURRENT_TIMESTAMP);",
@@ -170,6 +173,26 @@ impl Database {
         obj
     }
 
+    pub fn get_main_object(&self) -> Result<(Hash, CodeObject)> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT hash, code_obj FROM code_objs WHERE is_main = TRUE;")?;
+
+        let query_result = stmt.query_map([], |row| {
+            let hash: Vec<u8> = row.get(0)?;
+            let code_obj_blob: Vec<u8> = row.get(1)?;
+            Ok((hash, rmp_serde::from_slice::<CodeObject>(&code_obj_blob)))
+        })?;
+
+        let (hash, obj) = query_result
+            .into_iter()
+            .flatten()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("query failed: no main object found"))?;
+
+        Ok((build_hash(hash)?, obj?))
+    }
+
     pub fn get_code_object_by_name(&self, name: &str) -> Result<(Hash, CodeObject)> {
         let mut stmt = self
             .conn
@@ -191,15 +214,6 @@ impl Database {
 
         Ok((hash, self.get_code_object(&hash)?))
     }
-
-    // TODO: Now must write functions for:
-    // - insert new code object into table
-    // -- optionally give it a name (something for names to point to)
-    // - lookup code object by hash (SELECT on only second table)
-    // - lookup code object by name (SELECT on JOIN both tables)
-    // -
-    // -
-    // -
 }
 
 #[cfg(test)]
@@ -234,7 +248,7 @@ pub mod tests {
         let db = Database::open("/tmp/test.db").unwrap();
         let obj = init_code_obj(bytecode![Instr::Nop]);
 
-        db.insert_code_object(&obj).unwrap();
+        db.insert_code_object(&obj, false).unwrap();
     }
 
     #[test]

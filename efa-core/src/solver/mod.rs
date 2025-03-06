@@ -19,7 +19,7 @@ pub struct DepGraph<'a> {
     db: &'a Database,
 }
 
-impl<'a> DepGraph {
+impl<'a> DepGraph<'_> {
     pub fn new(db: &'a Database) -> DepGraph<'a> {
         DepGraph {
             graph: HashMap::new(),
@@ -27,7 +27,34 @@ impl<'a> DepGraph {
         }
     }
 
-    pub fn solve(&self) -> Result<()> {
+    pub fn solve(&mut self) -> Result<()> {
+        let main = self.db.get_main_object()?;
+        dbg!(main);
         todo!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bytecode::Instr;
+    use crate::db::Database;
+    use crate::vm::tests::init_code_obj;
+
+    fn mock_db() -> Result<Database> {
+        let db = Database::temp()?;
+
+        let obj = init_code_obj(bytecode![Instr::Nop, Instr::Return]);
+        db.insert_code_object_with_name(&obj, "main")?;
+
+        Ok(db)
+    }
+
+    #[test]
+    fn test_() {
+        let db = mock_db().unwrap();
+        let mut g = DepGraph::new(&db);
+
+        g.solve().unwrap();
     }
 }
