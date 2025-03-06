@@ -2,6 +2,7 @@
 pub mod bytecode;
 pub mod asm;
 pub mod db;
+pub mod solver;
 pub mod vm;
 
 pub const HASH_SIZE: usize = 16;
