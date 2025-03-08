@@ -9,41 +9,29 @@ use crate::bytecode::Instr;
 use crate::db::Database;
 use crate::Hash;
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-struct Node {
-    hash: Hash,
-    name: String,
-}
+mod node;
+
+use node::{Node, NodeStore};
 
 #[derive(Debug)]
-pub struct DepGraph<'a> {
+pub struct DepGraph<'s, S: NodeStore> {
     graph: HashMap<Node, HashSet<Node>>,
-
-    db: &'a Database,
+    node_store: &'s S,
 }
 
-impl<'a> DepGraph<'_> {
-    pub fn new(db: &'a Database) -> DepGraph<'a> {
+impl<'s, S> DepGraph<'_, S>
+where
+    S: NodeStore,
+{
+    pub fn new(store: &'s S) -> DepGraph<'s, S> {
         DepGraph {
             graph: HashMap::new(),
-            db,
+            node_store: store,
         }
     }
 
     pub fn solve_static(&mut self) -> Result<()> {
-        let (hash, obj) = self.db.get_main_object()?;
-
-        let main_node = Node {
-            name: "main".to_string(),
-            hash,
-        };
-
-        let nodes = self
-            .db
-            .get_functions()?
-            .into_iter()
-            .map(|(name, hash)| Node { name, hash })
-            .collect::<HashSet<_>>();
+        let nodes = self.node_store.nodes()?;
 
         // Seen nodes
         let mut solved = HashSet::<Node>::new();
@@ -63,7 +51,7 @@ impl<'a> DepGraph<'_> {
 
     /// Return the dependences of the given node
     fn solve_node(&self, node: &Node) -> Result<HashSet<Node>> {
-        let obj = self.db.get_code_object(&node.hash)?;
+        let obj = self.node_store.get_code_object(&node.hash)?;
         let code = obj
             .code
             .iter()
@@ -80,11 +68,12 @@ impl<'a> DepGraph<'_> {
                 // Want to return dependences (name, hash)
                 (Instr::LoadFunc(hash), Instr::Call) => {
                     // Result<Option<String>>
-                    let name = self.db.get_name_of_hash(hash);
+                    let name = self.node_store.get_name_of_hash(hash);
                     Some((name, *hash))
                 }
                 (Instr::LoadDyn(name), Instr::Call) => {
-                    let (hash, _) = self.db.get_code_object_by_name(name).unwrap();
+                    //TODO: remove unwrap
+                    let (hash, _) = self.node_store.get_code_object_by_name(name).unwrap();
                     Some((Ok(Some(name.to_string())), hash))
                 }
                 _ => None,
@@ -106,7 +95,10 @@ impl<'a> DepGraph<'_> {
     // fn linearize(&self) ->
 }
 
-impl<'a> std::fmt::Display for DepGraph<'a> {
+impl<'a, T> std::fmt::Display for DepGraph<'a, T>
+where
+    T: NodeStore,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let names = self
             .graph
@@ -124,6 +116,7 @@ impl<'a> std::fmt::Display for DepGraph<'a> {
 
 #[cfg(test)]
 mod tests {
+    use super::node::DatabaseNodeStore;
     use super::*;
     use crate::bytecode::Instr;
     use crate::db::Database;
@@ -150,7 +143,8 @@ mod tests {
     #[test]
     fn test_solver() {
         let db = mock_db().unwrap();
-        let mut g = DepGraph::new(&db);
+        let store = DatabaseNodeStore::new(&db);
+        let mut g = DepGraph::new(&store);
 
         g.solve_static().unwrap();
 
