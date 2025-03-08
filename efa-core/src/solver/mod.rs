@@ -1,8 +1,7 @@
 //! The solver is responsible for determining the dependence graph of a project
 //! Nodes are functions, directed edges are calls, and the root node is a main function.
 
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 
@@ -50,15 +49,14 @@ impl<'a> DepGraph<'_> {
         let mut solved = HashSet::<Node>::new();
 
         // TODO: remove these clones
-        for node in nodes {
+        nodes.into_iter().try_for_each(|node| {
             if !solved.contains(&node) {
                 let deps = self.solve_node(&node)?;
                 solved.insert(node.clone());
                 self.graph.insert(node.clone(), deps);
-            } else {
-                println!("already solved {:?}", node);
             }
-        }
+            Ok::<(), anyhow::Error>(())
+        })?;
 
         Ok(())
     }
@@ -104,6 +102,8 @@ impl<'a> DepGraph<'_> {
 
         Ok(deps)
     }
+
+    // fn linearize(&self) ->
 }
 
 impl<'a> std::fmt::Display for DepGraph<'a> {
