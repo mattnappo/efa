@@ -4,14 +4,15 @@ use std::hash::Hash as StdHash;
 use anyhow::Result;
 use derivative::Derivative;
 
+use crate::asm::parser::Parse;
 use crate::db::Database;
 use crate::vm::CodeObject;
 use crate::Hash;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Node {
-    pub(crate) hash: Hash,
-    pub(crate) name: String,
+    pub hash: Hash,
+    pub name: String,
 }
 
 pub trait NodeStore: Clone + StdHash + PartialEq + Eq {
@@ -19,6 +20,16 @@ pub trait NodeStore: Clone + StdHash + PartialEq + Eq {
     fn get_name_of_hash(&self, hash: &Hash) -> Result<Option<String>>;
     fn get_code_object_by_name(&self, name: &str) -> Result<(Hash, CodeObject)>;
     fn nodes(&self) -> Result<HashSet<Node>>;
+}
+
+/// A node from a file currently being analyzed, whose code object is stored in a `Parse`
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct FreeNodeStore {}
+
+impl FreeNodeStore {
+    pub fn new(nodes: Vec<Parse>) -> Self {
+        Self {}
+    }
 }
 
 /// A node whose code object resides in a database.
@@ -33,13 +44,6 @@ impl<'a> DatabaseNodeStore<'a> {
     pub fn new(db: &'a Database) -> Self {
         Self { db }
     }
-}
-
-/// A node from a file currently being analyzed, whose code object is stored in a `Parse`
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-struct FreeNode {
-    hash: Hash,
-    name: String,
 }
 
 impl NodeStore for DatabaseNodeStore<'_> {

@@ -10,6 +10,8 @@ use crate::db::Database;
 use crate::Hash;
 
 mod node;
+pub mod resolve_dyn;
+mod toposort;
 
 use node::{Node, NodeStore};
 
