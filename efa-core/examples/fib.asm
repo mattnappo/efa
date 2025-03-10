@@ -31,5 +31,7 @@ $main 0:
     load_lit 0
     load_dyn $fib
     call
+    dup
+    dbg
     ret_val
 

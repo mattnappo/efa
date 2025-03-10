@@ -117,6 +117,15 @@ impl Vm {
         })
     }
 
+    pub fn persistent<P: AsRef<Path>>(path: P) -> Result<Vm> {
+        Ok(Vm {
+            call_stack: Vec::new(),
+            data_stack_cap: STACK_CAP,
+            call_stack_cap: STACK_CAP,
+            db: Database::new(path)?,
+        })
+    }
+
     /// Return exit code
     pub fn run_main_function(&mut self) -> Result<i32> {
         let (_, code_obj) = self.db.get_main_object()?;
@@ -184,6 +193,9 @@ impl Vm {
                 }
                 Instr::Pop => {
                     stack.pop();
+                }
+                Instr::Dup => {
+                    stack.push(stack.iter().last().unwrap().clone());
                 }
 
                 Instr::LoadFunc(hash) => {
@@ -412,7 +424,7 @@ impl Vm {
 
                 Instr::Dbg => {
                     let tos = stack.last().unwrap();
-                    dbg!(tos);
+                    println!("{tos:?} ");
                 }
                 Instr::Nop => {}
             }

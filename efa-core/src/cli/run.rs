@@ -3,7 +3,6 @@ use clap::Parser;
 use efa_core::asm::parser;
 use efa_core::solver::resolve_dyn::DynCallResolver;
 use efa_core::vm::Vm;
-use efa_core::Hash;
 
 use anyhow::Result;
 
@@ -12,8 +11,6 @@ struct Args {
     input_file: String,
     db_path: Option<String>,
 }
-
-// TODO: need to make call DAG
 
 /// Parse a file, run the DAG solver, hash and insert everything into a
 /// code database, and find and run the main function.
@@ -24,10 +21,10 @@ fn run_scratch_file(file: &str, db_path: Option<&str>) -> Result<i32> {
     let resolved = resolver.resolve_dyn_calls()?;
 
     let mut vm = if let Some(path) = db_path {
-        Vm::initialize(path)
+        Vm::persistent(path)?
     } else {
-        Vm::new()
-    }?;
+        Vm::new()?
+    };
 
     resolved
         .into_iter()

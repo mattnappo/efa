@@ -269,6 +269,7 @@ impl Parser {
                     ("load_lit", Some(arg), None) => Instr::LoadLit(arg),
                     ("str_loc", Some(arg), None) => Instr::StoreLocal(arg),
                     ("pop", None, None) => Instr::Pop,
+                    ("dup", None, None) => Instr::Dup,
 
                     // TODO
                     ("load_func", None, None) => {

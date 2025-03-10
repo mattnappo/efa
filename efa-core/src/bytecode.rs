@@ -34,6 +34,7 @@ pub enum Instr {
     LoadLit(usize),
     StoreLocal(usize),
     Pop,
+    Dup,
 
     LoadFunc(Hash),
     LoadDyn(String),
