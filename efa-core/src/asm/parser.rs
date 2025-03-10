@@ -114,7 +114,9 @@ impl Parser {
             .collect())
     }
 
-    fn get_labels(function: &str) -> Result<(HashMap<String, usize>, Vec<usize>), ParseError> {
+    fn get_labels(
+        function: &str,
+    ) -> Result<(HashMap<String, usize>, Vec<usize>), ParseError> {
         // Want a map from label names (L0, L1) to label number
         // And an array of offsets (where index is label number)
         let mut j = 0;

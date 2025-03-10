@@ -58,7 +58,10 @@ where
             .code
             .iter()
             .filter(|instr| match instr {
-                Instr::Call | Instr::CallSelf | Instr::LoadFunc(_) | Instr::LoadDyn(_) => true,
+                Instr::Call
+                | Instr::CallSelf
+                | Instr::LoadFunc(_)
+                | Instr::LoadDyn(_) => true,
                 _ => false,
             })
             .collect::<Vec<&Instr>>();
@@ -75,14 +78,16 @@ where
                 }
                 (Instr::LoadDyn(name), Instr::Call) => {
                     //TODO: remove unwrap
-                    let (hash, _) = self.node_store.get_code_object_by_name(name).unwrap();
+                    let (hash, _) =
+                        self.node_store.get_code_object_by_name(name).unwrap();
                     Some((Ok(Some(name.to_string())), hash))
                 }
                 _ => None,
             })
             .map(|(name, hash)| {
-                let n = name?
-                    .ok_or_else(|| anyhow::anyhow!("hash 0x{} has no name", hex::encode(hash)))?;
+                let n = name?.ok_or_else(|| {
+                    anyhow::anyhow!("hash 0x{} has no name", hex::encode(hash))
+                })?;
                 Ok(Node { name: n, hash })
             })
             .collect::<Result<HashSet<_>>>()?;
