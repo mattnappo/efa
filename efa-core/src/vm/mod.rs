@@ -107,7 +107,7 @@ impl Vm {
         })
     }
 
-    /// Start a VM with a persistent DB
+    /// Start a VM from an existing database
     pub fn initialize<P: AsRef<Path>>(path: P) -> Result<Vm> {
         Ok(Vm {
             call_stack: Vec::new(),
@@ -117,6 +117,7 @@ impl Vm {
         })
     }
 
+    /// Create a new VM with a new persistent database
     pub fn persistent<P: AsRef<Path>>(path: P) -> Result<Vm> {
         Ok(Vm {
             call_stack: Vec::new(),
@@ -127,8 +128,26 @@ impl Vm {
     }
 
     /// Return exit code
+    /// TODO: does not handle locals yet
     pub fn run_main_function(&mut self) -> Result<i32> {
         let (_, code_obj) = self.db.get_main_object()?;
+
+        let main = StackFrame {
+            code_obj,
+            stack: Vec::new(),
+            locals: HashMap::new(),
+            instruction: 0,
+        };
+        self.call_stack.push(main);
+        self.exec(false)
+    }
+
+    /// Run a function given its name, returning the exit code
+    /// Mainly used for debugging
+    /// TODO: this does not yet handle arguments. Would want this to be called
+    /// by a future REPL.
+    pub fn run_function_by_name(&mut self, name: &str) -> Result<i32> {
+        let (_, code_obj) = self.db.get_code_object_by_name(name)?;
 
         let main = StackFrame {
             code_obj,
@@ -899,7 +918,9 @@ pub mod tests {
             ],
         };
 
-        let code = vm.run_main_function(&func_a).unwrap();
+        let hash = vm.db.insert_code_object_with_name(&func_a, "main").unwrap();
+
+        let code = vm.run_main_function().unwrap();
 
         assert_eq!(code, 70);
     }
@@ -934,17 +955,16 @@ pub mod tests {
             is_void: true,
             localnames: vec![],
             labels: Vec::new(),
-
             code: bytecode![Instr::LoadFunc(hash), Instr::Call, Instr::Return],
         };
+        vm.db.insert_code_object_with_name(&func_a, "main").unwrap();
 
-        let code = vm.run_main_function(&func_a).unwrap();
-
+        let code = vm.run_main_function().unwrap();
         assert_eq!(code, 0);
     }
 
     #[test]
-    fn test_main_returns() {
+    fn test_main_returns_1() {
         let mut vm = Vm::new().unwrap();
         let func = CodeObject {
             litpool: vec![],
@@ -952,34 +972,40 @@ pub mod tests {
             is_void: false,
             localnames: vec![],
             labels: Vec::new(),
-
             code: bytecode![Instr::Return],
         };
-        assert!(vm.run_main_function(&func).is_err());
+        vm.db.insert_code_object_with_name(&func, "main").unwrap();
+        assert!(vm.run_main_function().is_err());
+    }
 
+    #[test]
+    fn test_main_returns_2() {
+        let mut vm = Vm::new().unwrap();
         let func = CodeObject {
             litpool: vec![Value::string("break")],
             argcount: 0,
             is_void: false,
             localnames: vec![],
             labels: Vec::new(),
-
             code: bytecode![Instr::LoadLit(0), Instr::Return],
         };
+        vm.db.insert_code_object_with_name(&func, "main").unwrap();
+        assert!(vm.run_main_function().is_err());
+    }
 
-        assert!(vm.run_main_function(&func).is_err());
-
+    #[test]
+    fn test_main_returns_3() {
+        let mut vm = Vm::new().unwrap();
         let func = CodeObject {
             litpool: vec![Value::I32(0)],
             argcount: 0,
             is_void: false,
             localnames: vec![],
             labels: Vec::new(),
-
             code: bytecode![Instr::LoadLit(0), Instr::Return],
         };
-
-        assert_eq!(vm.run_main_function(&func).unwrap(), 0);
+        vm.db.insert_code_object_with_name(&func, "main").unwrap();
+        assert_eq!(vm.run_main_function().unwrap(), 0);
     }
 
     #[test]
@@ -1035,7 +1061,10 @@ pub mod tests {
                     Instr::Return
                 ],
             };
-            vm.run_main_function(&main).unwrap()
+            vm.db
+                .insert_code_object_with_name(&main, &format!("fib_{n}"))
+                .unwrap();
+            vm.run_function_by_name(&format!("fib_{n}")).unwrap()
         };
 
         assert_eq!(f(10), 55);

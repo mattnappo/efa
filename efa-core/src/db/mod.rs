@@ -275,7 +275,7 @@ pub mod tests {
 
     #[test]
     fn test_insert_codeobj() {
-        let db = Database::open("/tmp/test.db").unwrap();
+        let db = Database::temp().unwrap();
         let obj = init_code_obj(bytecode![Instr::Nop]);
 
         db.insert_code_object(&obj, false).unwrap();
@@ -283,16 +283,16 @@ pub mod tests {
 
     #[test]
     fn test_get_codeobj() {
-        let db = Database::open("/tmp/test.db").unwrap();
+        let db = Database::temp().unwrap();
         let obj = init_code_obj(bytecode![Instr::Nop]);
-
+        db.insert_code_object(&obj, false).unwrap();
         let res = db.get_code_object(&obj.hash().unwrap()).unwrap();
         assert_eq!(res.hash().unwrap(), obj.hash().unwrap());
     }
 
     #[test]
     fn test_insert_codeobj_name() {
-        let db = Database::open("/tmp/test.db").unwrap();
+        let db = Database::temp().unwrap();
         let obj1 = init_code_obj(bytecode![]);
         let obj2 = init_nondet_code_obj(bytecode![]);
 
@@ -310,18 +310,23 @@ pub mod tests {
 
     #[test]
     fn test_get_codeobj_name() {
-        let db = Database::open("/tmp/test.db").unwrap();
+        let db = Database::temp().unwrap();
         let obj = init_code_obj(bytecode![]);
+        db.insert_code_object_with_name(&obj, "random_obj").unwrap();
         let (hash, _) = db.get_code_object_by_name("random_obj").unwrap();
         assert_eq!(obj.hash().unwrap(), hash);
     }
 
     #[test]
     fn test_create_alias() {
-        let db = Database::open("/tmp/test.db").unwrap();
-        let hash = init_code_obj(bytecode![]).hash().unwrap();
-
+        let db = Database::temp().unwrap();
+        let obj = init_code_obj(bytecode![]);
+        db.insert_code_object_with_name(&obj, "name_1").unwrap();
+        let hash = obj.hash().unwrap();
         db.create_alias("name_2", &hash).unwrap();
+        // Check
+        let (get_hash, _) = db.get_code_object_by_name("name_2").unwrap();
+        assert_eq!(hash, get_hash);
     }
 
     #[test]
