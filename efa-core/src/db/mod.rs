@@ -115,7 +115,11 @@ impl Database {
         Ok(hash)
     }
 
-    pub fn insert_code_object_with_name(&self, code_obj: &CodeObject, name: &str) -> Result<Hash> {
+    pub fn insert_code_object_with_name(
+        &self,
+        code_obj: &CodeObject,
+        name: &str,
+    ) -> Result<Hash> {
         if !is_valid_name(name) {
             bail!("cannot insert code object with invalid name '{name}'");
         }
