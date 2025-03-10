@@ -1,80 +1,49 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::hash::Hash;
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 
-type Graph<T: Hash + Eq + PartialEq + Clone> = HashMap<T, HashSet<T>>;
+type Graph<T> = HashMap<T, HashSet<T>>;
 
-type StrGraph = Graph<String>;
-
-#[derive(Clone, Hash, Eq, PartialEq)]
-enum Mark {
-    Unmarked,
-    Temp,
-    Final,
+pub fn toposort<T>(graph: &Graph<T>) -> Result<Vec<T>>
+where
+    T: Hash + Eq + PartialEq + Clone + Debug,
+{
+    let soln = graph.iter().try_fold(vec![], |acc, (node, _)| {
+        visit_node(graph, node, vec![], acc.clone())
+    })?;
+    Ok(soln)
 }
 
-#[derive(Clone)]
-struct Toposort<'a, T>
+fn visit_node<T>(
+    graph: &Graph<T>,
+    node: &T,
+    path: Vec<T>,
+    visited: Vec<T>,
+) -> Result<Vec<T>>
 where
-    T: Hash + Eq + PartialEq + Clone,
+    T: Hash + Eq + PartialEq + Clone + Debug,
 {
-    sorted: Vec<&'a T>,
-    marks: HashMap<&'a T, Mark>,
-    graph: &'a Graph<T>,
-}
+    if path.contains(&node) {
+        bail!("toposort: cycle found");
+    } else if visited.contains(node) {
+        Ok(visited)
+    } else {
+        let edges = graph
+            .get(&node)
+            .ok_or_else(|| anyhow!("toposort: node '{node:?}' not present in graph"))?;
 
-impl<'a, T> Toposort<'a, T>
-where
-    T: Hash + Eq + PartialEq + Clone,
-{
-    pub fn new(graph: &'a Graph<T>) -> Result<()> {
-        let sorted = vec![];
+        let mut new_path = path.clone();
+        new_path.insert(0, node.clone());
 
-        let marks = graph
-            .keys()
-            .map(|k| (k, Mark::Unmarked))
-            .collect::<HashMap<_, _>>();
+        let mut new_visited =
+            edges.into_iter().try_fold(visited.clone(), |acc, edge| {
+                visit_node(graph, edge, new_path.clone(), acc.clone())
+            })?;
 
-        let mut topo = Self {
-            sorted,
-            marks,
-            graph,
-        };
-
-        while let Some(node) = topo.unmarked() {
-            topo.marks.insert(node, Mark::Temp);
-            topo.visit(node)?;
-        }
-
-        Ok(())
-    }
-
-    fn unmarked(&self) -> Option<&T> {
-        self.marks.iter().find_map(|(node, mark)| match mark {
-            Mark::Unmarked | Mark::Temp => Some(*node),
-            Mark::Final => None,
-        })
-    }
-
-    fn visit(&mut self, node: &'a T) -> Result<()> {
-        if self.marks.get(node).unwrap() == &Mark::Final {
-            return Ok(());
-        }
-
-        if self.marks.get(node).unwrap() == &Mark::Temp {
-            bail!("toposort: error: graph has cycle");
-        }
-
-        self.marks.insert(node, Mark::Temp);
-
-        for in_node in self.graph.get(node).unwrap() {
-            self.visit(in_node)?;
-        }
-
-        self.marks.insert(node, Mark::Final);
-        self.sorted.insert(0, node);
-        Ok(())
+        new_visited.insert(0, node.clone());
+        Ok(new_visited)
     }
 }
 
@@ -84,6 +53,15 @@ mod tests {
 
     #[test]
     fn test_toposort() {
-        // toposort();
+        assert_eq!(
+            toposort(&HashMap::from([
+                ("a", HashSet::from(["b", "c"])),
+                ("b", HashSet::from(["c", "d"])),
+                ("c", HashSet::from(["d"])),
+                ("d", HashSet::new()),
+            ]))
+            .unwrap(),
+            vec!["a", "b", "c", "d"]
+        );
     }
 }

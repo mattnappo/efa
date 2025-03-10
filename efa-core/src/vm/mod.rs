@@ -266,7 +266,9 @@ impl Vm {
                     } else {
                         // Get the return value from the top of current frame's stack
                         if stack.is_empty() {
-                            bail!("non-void function requires a return value on the stack");
+                            bail!(
+                                "non-void function requires a return value on the stack"
+                            );
                         } else {
                             return_value = Return::Value(stack.pop().unwrap());
                         }
@@ -283,12 +285,10 @@ impl Vm {
                     let top = stack.pop().unwrap();
 
                     if let Value::Bool(true) = top {
-                        next_instr_ptr = frame
-                            .code_obj
-                            .labels
-                            .get(label)
-                            .copied()
-                            .ok_or_else(|| anyhow!("label {} does not exist", label))?;
+                        next_instr_ptr =
+                            frame.code_obj.labels.get(label).copied().ok_or_else(
+                                || anyhow!("label {} does not exist", label),
+                            )?;
                     }
                 }
 
