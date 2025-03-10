@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
 use crate::asm::parser::Parse;
-use crate::bytecode::Instr;
+use crate::bytecode::{Bytecode, Instr};
 use crate::vm::CodeObject;
+use crate::Hash;
 
 use super::toposort::toposort;
 
@@ -50,7 +51,47 @@ impl DynCallResolver {
                (name, new_obj)
            collect into map
         */
-        todo!()
+
+        // Keep track of the code objects we've already hashed
+        let mut hashed = HashMap::<String, Hash>::new();
+
+        let new_objs = self
+            .hash_order
+            .into_iter()
+            .rev()
+            .map(|name| {
+                let obj = self
+                    .objs
+                    .get(&name)
+                    .ok_or_else(|| anyhow!("object '{name}' not present"))?;
+
+                let new_instrs: Vec<Instr> = obj
+                    .code
+                    .iter()
+                    .map(|instr| match instr {
+                        Instr::LoadDyn(dyn_name) => {
+                            let hash = hashed.get(dyn_name.as_str())
+                                .ok_or_else(|| anyhow!("dyn_name '{name}' should have already been hashed"))?;
+
+                            Ok(Instr::LoadFunc(*hash))
+                        }
+                        e => Ok(e.clone()),
+                    })
+                    .collect::<Result<_>>()?;
+
+                let new_obj = {
+                    let mut c = obj.clone();
+                    c.code = Bytecode::new(new_instrs);
+                    c
+                };
+
+                hashed.insert(name.clone(), new_obj.hash()?);
+
+                Ok((name, new_obj))
+            })
+            .collect::<Result<_>>()?;
+
+        Ok(new_objs)
     }
 
     fn solve(&self) -> Result<HashMap<String, HashSet<String>>> {
@@ -102,6 +143,8 @@ mod tests {
     fn test_resolver() {
         let parse = Parser::parse_file("./examples/call.asm").unwrap();
         let resolver = DynCallResolver::new(parse).unwrap();
-        dbg!(resolver);
+        dbg!(&resolver);
+        let resolved = resolver.resolve_dyn_calls().unwrap();
+        dbg!(resolved);
     }
 }
