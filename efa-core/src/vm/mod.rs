@@ -118,9 +118,11 @@ impl Vm {
     }
 
     /// Return exit code
-    pub fn run_main_function(&mut self, code: &CodeObject) -> Result<i32> {
+    pub fn run_main_function(&mut self) -> Result<i32> {
+        let (_, code_obj) = self.db.get_main_object()?;
+
         let main = StackFrame {
-            code_obj: code.clone(),
+            code_obj,
             stack: Vec::new(),
             locals: HashMap::new(),
             instruction: 0,

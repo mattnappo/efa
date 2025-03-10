@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-path = "./src/asm/asm.rs"
-name = "as"
+path = "./src/cli/run.rs"
+name = "efa-run"
 
 [dependencies]
 anyhow = "1.0.95"

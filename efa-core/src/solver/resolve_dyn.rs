@@ -10,7 +10,7 @@ use crate::Hash;
 use super::toposort::toposort;
 
 #[derive(Debug)]
-struct DynCallResolver {
+pub struct DynCallResolver {
     objs: HashMap<String, CodeObject>,
     deps: HashMap<String, HashSet<String>>,
 
