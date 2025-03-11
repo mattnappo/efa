@@ -1,6 +1,7 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
 use efa_core::asm::parser;
+use efa_core::db::Database;
 use efa_core::solver::resolve_dyn::DynCallResolver;
 use efa_core::vm::Vm;
 
@@ -8,9 +9,23 @@ use anyhow::Result;
 
 #[derive(Parser)]
 struct Args {
-    input_file: String,
-    db_path: Option<String>,
+    #[clap(subcommand)]
+    cmd: Command,
 }
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    Run {
+        input_file: String,
+        db_path: Option<String>,
+    },
+    Dump {
+        db_path: String,
+    },
+}
+
+#[derive(Parser)] // subcommand
+struct Run {}
 
 /// Parse a file, run the DAG solver, hash and insert everything into a
 /// code database, and find and run the main function.
@@ -36,9 +51,23 @@ fn run_scratch_file(file: &str, db_path: Option<&str>) -> Result<i32> {
     Ok(code)
 }
 
+fn dump_db(db_path: &str) -> Result<()> {
+    Database::open(db_path)?.dump()
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let code = run_scratch_file(&args.input_file, args.db_path.as_deref())?;
+    let code = match args.cmd {
+        Command::Run {
+            input_file,
+            db_path,
+        } => run_scratch_file(&input_file, db_path.as_deref())?,
+        Command::Dump { db_path } => {
+            dump_db(&db_path)?;
+            0
+        }
+    };
+
     std::process::exit(code)
 }

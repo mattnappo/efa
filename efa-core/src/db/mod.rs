@@ -7,7 +7,7 @@ use crate::build_hash;
 use crate::{is_valid_name, vm::CodeObject, Hash, HASH_SIZE};
 
 use anyhow::{bail, Result};
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::{params, Connection, DatabaseName, OpenFlags};
 
 #[derive(Debug)]
 pub struct Database {
@@ -243,6 +243,20 @@ impl Database {
         })?;
         let res = query_result.collect::<rusqlite::Result<_>>()?;
         Ok(res)
+    }
+
+    pub fn save_to_disk<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        Ok(self.conn.backup(DatabaseName::Main, path, None)?)
+    }
+
+    pub fn dump(&self) -> Result<()> {
+        self.get_functions()?
+            .into_iter()
+            .try_for_each(|(name, hash)| {
+                println!("{name}");
+                self.get_code_object(&hash)
+                    .and_then(|obj| Ok(println!("{}", obj.code)))
+            })
     }
 }
 

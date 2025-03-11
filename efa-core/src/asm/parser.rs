@@ -219,7 +219,7 @@ impl Parser {
         let (label_names, label_offsets) = Self::get_labels(&code)?;
         let code = code.lines();
 
-        let mut is_void: bool = false;
+        let mut is_void: bool = true;
         let tokens = code
             .map(|line| {
                 let parts = line.split_whitespace().collect::<Vec<&str>>();

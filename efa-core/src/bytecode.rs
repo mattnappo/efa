@@ -1,3 +1,4 @@
+use std::fmt;
 use std::ops::Deref;
 
 use serde::{Deserialize, Serialize};
@@ -92,6 +93,99 @@ macro_rules! bytecode {
     ($($instr:expr),*) => {
         $crate::bytecode::Bytecode::new(vec![$($instr),*])
     };
+}
+
+impl fmt::Display for Bytecode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let code = self
+            .code
+            .iter()
+            .map(|i| format!("   {i}"))
+            .collect::<Vec<_>>();
+        write!(f, "{}", &code[..].join("\n"))
+    }
+}
+
+impl fmt::Display for Instr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Instr::LoadArg(i) => format!("load_arg {i}"),
+                Instr::LoadLocal(i) => format!("load_loc {i}"),
+                Instr::LoadLit(i) => format!("load_lit {i}"),
+                Instr::StoreLocal(i) => format!("store_loc {i}"),
+                Instr::Pop => "pop".to_string(),
+                Instr::Dup => "dup".to_string(),
+
+                Instr::LoadFunc(h) => format!("load_func 0x{}", hex::encode(h)),
+                Instr::LoadDyn(s) => format!("load_dyn {s}"),
+                Instr::Call => "call".to_string(),
+                Instr::CallSelf => "call_self".to_string(),
+                Instr::Return => "ret".to_string(),
+
+                Instr::Jump(i) => format!("jmp {i}"),
+                Instr::JumpT(i) => format!("jmp_t {i}"),
+                Instr::JumpF(i) => format!("jmp_f {i}"),
+                Instr::JumpEq(i) => format!("jmp_eq {i}"),
+                Instr::JumpGt(i) => format!("jmp_gt {i}"),
+                Instr::JumpGe(i) => format!("jmp_ge {i}"),
+                Instr::JumpLt(i) => format!("jmp_lt {i}"),
+                Instr::JumpLe(i) => format!("jmp_le {i}"),
+
+                Instr::BinOp(op) => format!("{op}"),
+                Instr::UnaryOp(op) => format!("{op}"),
+
+                Instr::LoadArray => "load_arr".to_string(),
+                Instr::StoreArray => "store_arr".to_string(),
+                Instr::MakeArray => "make_arr".to_string(),
+                Instr::MakeSlice => "make_slice".to_string(),
+                Instr::StoreSlice => "store_slice".to_string(),
+
+                Instr::LoadField => "load_field".to_string(),
+                Instr::StoreField => "store_field".to_string(),
+                Instr::MakeStruct => "make_struct".to_string(),
+
+                Instr::Dbg => "dbg".to_string(),
+                Instr::Nop => "nop".to_string(),
+            }
+        )
+    }
+}
+
+impl fmt::Display for BinOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                BinOp::Add => "add",
+                BinOp::Mul => "mul",
+                BinOp::Div => "div",
+                BinOp::Sub => "sub",
+                BinOp::Mod => "mod",
+                BinOp::Shl => "shl",
+                BinOp::Shr => "shr",
+                BinOp::And => "and",
+                BinOp::Or => "or",
+                BinOp::Eq => "eq",
+            }
+        )
+    }
+}
+
+impl fmt::Display for UnaryOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                UnaryOp::Not => "not",
+                UnaryOp::Neg => "neg",
+            }
+        )
+    }
 }
 
 #[cfg(test)]

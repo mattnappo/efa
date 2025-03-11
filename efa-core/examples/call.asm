@@ -17,14 +17,11 @@ $baz 0:
     ret
 
 $cap 0:
-    nop
     ret
 
 $main 0:
     load_dyn $foo
     call
-
-    call_self
 
     #lit 0
     load_lit 0

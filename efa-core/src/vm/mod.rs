@@ -184,7 +184,7 @@ impl Vm {
 
             let mut return_value: Return = Return::None;
             let mut next_frame: Option<StackFrame> = None;
-
+            // println!("{instr:?}");
             match instr {
                 Instr::LoadArg(i) => {
                     if i >= frame.code_obj.argcount {
@@ -300,7 +300,7 @@ impl Vm {
                         // Get the return value from the top of current frame's stack
                         if stack.is_empty() {
                             bail!(
-                                "non-void function requires a return value on the stack"
+                                "non-void function requires a return value on the stack {:?}", frame.code_obj
                             );
                         } else {
                             return_value = Return::Value(stack.pop().unwrap());
