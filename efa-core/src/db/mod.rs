@@ -107,10 +107,14 @@ impl Database {
         let obj = rmp_serde::to_vec(code_obj)?;
         let hash = code_obj.hash()?;
 
-        self.conn.execute(
+        match self.conn.execute(
             "INSERT INTO code_objs (hash, code_obj, is_main, time) VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP);",
             params![hash, obj, is_main as u8],
-        )?;
+        ) {
+            Ok(_) => Ok(()),
+            Err(e) if e.to_string().contains("UNIQUE constraint failed") => Ok(()),
+            Err(e) => Err(e)
+        }?;
 
         Ok(hash)
     }

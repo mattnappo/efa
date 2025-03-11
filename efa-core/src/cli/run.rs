@@ -24,9 +24,6 @@ enum Command {
     },
 }
 
-#[derive(Parser)] // subcommand
-struct Run {}
-
 /// Parse a file, run the DAG solver, hash and insert everything into a
 /// code database, and find and run the main function.
 fn run_scratch_file(file: &str, db_path: Option<&str>) -> Result<i32> {
