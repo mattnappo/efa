@@ -17,6 +17,7 @@ $baz 0:
     ret
 
 $cap 0:
+    nop
     ret
 
 $main 0:

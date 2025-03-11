@@ -74,21 +74,23 @@ where
                 (Instr::LoadFunc(hash), Instr::Call) => {
                     // Result<Option<String>>
                     let name = self.node_store.get_name_of_hash(hash);
-                    Some((name, *hash))
+                    Some((name, Ok(*hash)))
                 }
                 (Instr::LoadDyn(name), Instr::Call) => {
-                    //TODO: remove unwrap
-                    let (hash, _) =
-                        self.node_store.get_code_object_by_name(name).unwrap();
+                    let hash = self
+                        .node_store
+                        .get_code_object_by_name(name)
+                        .map(|(x, y)| x);
                     Some((Ok(Some(name.to_string())), hash))
                 }
                 _ => None,
             })
             .map(|(name, hash)| {
+                let h = hash?;
                 let n = name?.ok_or_else(|| {
-                    anyhow::anyhow!("hash 0x{} has no name", hex::encode(hash))
+                    anyhow::anyhow!("hash 0x{} has no name", hex::encode(h))
                 })?;
-                Ok(Node { name: n, hash })
+                Ok(Node { name: n, hash: h })
             })
             .collect::<Result<HashSet<_>>>()?;
 
