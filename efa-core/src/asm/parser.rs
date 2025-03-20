@@ -8,6 +8,7 @@ use anyhow::{Ok, Result};
 use regex::Regex;
 
 use crate::bytecode::{BinOp, Bytecode, Instr, UnaryOp};
+use crate::hash_from_str;
 use crate::vm::{CodeObject, Value};
 use crate::{is_valid_name, HASH_SIZE};
 
@@ -42,6 +43,8 @@ enum ParseError {
 
     NoFunctionDef,
     RegexError(String),
+
+    Error(anyhow::Error),
 }
 
 #[derive(Debug)]
@@ -199,14 +202,9 @@ impl Parser {
                 }
 
                 // Hash case
-                if arg.len() >= 2 && &arg[..2] == "0x" {
-                    return Some(
-                        hex::decode(&arg[..2])
-                            .map_err(|_| ParseError::InvalidHash)
-                            .and_then(|bytes| {
-                                Value::hash(bytes).map_err(|_| ParseError::InvalidHash)
-                            }),
-                    );
+                if arg.len() >= 2 && arg.starts_with("0x") {
+                    let h = hash_from_str(arg).map(|bytes| Value::Hash(bytes));
+                    return Some(h.map_err(ParseError::Error));
                 }
 
                 // Int case
@@ -315,12 +313,9 @@ impl Parser {
                     // TODO
                     ("load_func", None, None) => {
                         if let Some(hash) = str_argument {
-                            todo!()
-                            // Instr::LoadFunc(
-                            // hash[..HASH_SIZE]
-                            // .try_into()
-                            // .map_err(|_| ParseError::InvalidHash)?,
-                            // )
+                            Instr::LoadFunc(
+                                hash_from_str(hash).map_err(ParseError::Error)?,
+                            )
                         } else {
                             return Err(ParseError::ExpectedArgument);
                         }
@@ -456,6 +451,7 @@ impl Display for ParseError {
             ParseError::InvalidLiteral => "invalid literal definition",
             ParseError::InvalidStrLit => "invalid string literal",
             ParseError::RegexError(e) => &format!("regex: {e}"),
+            ParseError::Error(e) => &format!("{e}"),
         };
         write!(f, "parser error: {msg}")
     }

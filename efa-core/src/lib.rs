@@ -20,7 +20,7 @@ fn is_valid_name(name: &str) -> bool {
 }
 
 // TODO: convert all grep ..HASH_SIZE] to use this method
-fn build_hash(hash: Vec<u8>) -> Result<Hash> {
+fn hash_from_vec(hash: Vec<u8>) -> Result<Hash> {
     let trunc: [u8; HASH_SIZE] = (&hash[0..HASH_SIZE])
         .try_into()
         .map_err(|_| anyhow!("failed to build hash from {hash:?}"))?;

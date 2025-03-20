@@ -9,7 +9,7 @@ use sha2::{Digest, Sha512};
 
 use crate::bytecode::{BinOp, Bytecode, Instr, UnaryOp};
 use crate::db::Database;
-use crate::{Hash, HASH_SIZE};
+use crate::{hash_from_vec, Hash, HASH_SIZE};
 
 const STACK_CAP: usize = 256;
 
@@ -74,9 +74,7 @@ impl Value {
     }
 
     pub fn hash(hash: Vec<u8>) -> Result<Value> {
-        let trunc: [u8; HASH_SIZE] = (&hash[0..HASH_SIZE])
-            .try_into()
-            .map_err(|_| anyhow!("failed to truncate vector for hash"))?;
+        let trunc = hash_from_vec(hash)?;
         Ok(Value::Hash(trunc))
     }
 }
@@ -500,7 +498,7 @@ impl CodeObject {
         let obj = rmp_serde::to_vec(&self)?;
         let mut hasher = Sha512::new();
         hasher.update(obj);
-        (&hasher.finalize().to_vec()[0..HASH_SIZE])
+        (&hasher.finalize().to_vec()[..HASH_SIZE])
             .try_into()
             .map_err(|_| anyhow!("failed to hash CodeObject"))
     }

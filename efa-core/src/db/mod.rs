@@ -4,8 +4,7 @@ use std::{
 };
 
 use crate::asm::dis::disassemble_function;
-use crate::build_hash;
-use crate::{is_valid_name, vm::CodeObject, Hash, HASH_SIZE};
+use crate::{hash_from_vec, is_valid_name, vm::CodeObject, Hash};
 
 use anyhow::{bail, Result};
 use rusqlite::{params, Connection, DatabaseName, OpenFlags};
@@ -199,7 +198,7 @@ impl Database {
             .next()
             .ok_or_else(|| anyhow::anyhow!("query failed: no main object found"))?;
 
-        Ok((build_hash(hash)?, obj?))
+        Ok((hash_from_vec(hash)?, obj?))
     }
 
     pub fn get_code_object_by_name(&self, name: &str) -> Result<(Hash, CodeObject)> {
@@ -216,10 +215,7 @@ impl Database {
             Some(h) => h?,
             None => bail!("query failed: no code object with name '{name}'"),
         };
-
-        let hash: Hash = hash[0..HASH_SIZE]
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("failed to hash CodeObject"))?;
+        let hash = hash_from_vec(hash)?;
 
         Ok((hash, self.get_code_object(&hash)?))
     }
