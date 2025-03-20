@@ -6,23 +6,39 @@ $square 1:
 
 $main 0:
     .lit 0
+    .lit 1
     .lit 5
 
     load_lit 0
-    store_local 0 // i
+    store_loc 0
 
+    load_lit 2
+    store_loc 1
+
+    load_lit 0
+    store_loc 2
+
+loop_top:
+    load_loc 0
+    load_loc 1
+    jmp_gt exit
+
+    load_loc 0
+    load_dyn $square
+    call
+    load_loc 2
+    add
+    store_loc 2
+    pop
+
+    load_loc 0
     load_lit 1
-    store_local 1 // n
+    add
+    store_loc 0
 
-loop:
-    jmp_ge exit
-
-    // loop body
-    dbg
-
-    jmp loop
+    jmp loop_top
 
 exit:
-    load_lit 0
+    load_loc 2
     ret_val
 

@@ -29,14 +29,15 @@ enum ParseError {
     InvalidArg,
     SyntaxError,
 
-    InvalidIdent,
+    InvalidIdent(String),
+    InvalidLabelName(String),
     InvalidHash,
     InvalidStrLit,
     InvalidFuncDef,
     InvalidLiteral,
 
     /// Unknown instruction mnemonic, or bad arguments (missing/present)
-    UnknownInstr,
+    UnknownInstr(String),
     UnknownLabel,
 
     NoFunctionDef,
@@ -145,7 +146,9 @@ impl Parser {
 
                 let label = &word[0..word.len() - 1];
                 if !is_valid_name(label) {
-                    return Some(Result::Err(ParseError::InvalidIdent));
+                    return Some(Result::Err(ParseError::InvalidLabelName(
+                        label.to_string(),
+                    )));
                 }
                 j += 1;
                 Some(Result::Ok((label.to_string(), i - j)))
@@ -221,11 +224,10 @@ impl Parser {
             .into_iter()
             .filter_map(|token| match token {
                 ParseToken::Instr(Instr::LoadLocal(i))
-                | ParseToken::Instr(Instr::StoreLocal(i)) => Some(i),
+                | ParseToken::Instr(Instr::StoreLocal(i)) => Some(i + 1),
                 _ => None,
             })
             .max()
-            .copied()
             .unwrap_or(0);
 
         Result::Ok(num)
@@ -356,7 +358,7 @@ impl Parser {
 
                     ("nop", None, None) => Instr::Nop,
                     ("dbg", None, None) => Instr::Dbg,
-                    _ => return Err(ParseError::UnknownInstr),
+                    _ => return Err(ParseError::UnknownInstr(line.to_string())),
                 };
 
                 Result::Ok(ParseToken::Instr(instr))
@@ -389,7 +391,7 @@ impl Parser {
             "jmp_ge" => Result::Ok(Instr::JumpGe(*label_idx)),
             "jmp_lt" => Result::Ok(Instr::JumpLt(*label_idx)),
             "jmp_le" => Result::Ok(Instr::JumpLe(*label_idx)),
-            _ => Err(ParseError::UnknownInstr),
+            _ => Err(ParseError::UnknownInstr(op.to_string())),
         }
     }
 
@@ -415,8 +417,7 @@ impl Parser {
             })
             .collect();
 
-        //let localnames = (0..=(argcount + partial.num_locals))
-        let localnames = (0..argcount)
+        let localnames = (0..argcount + partial.num_locals)
             .collect::<Vec<usize>>()
             .into_iter()
             .map(|t| format!("x{t}"))
@@ -441,10 +442,13 @@ impl Display for ParseError {
         let msg = match self {
             ParseError::UnexpectedArgument => "unexpected argument",
             ParseError::ExpectedArgument => "expected an argument",
-            ParseError::UnknownInstr => "unknown instruction or invalid arguments",
+            ParseError::UnknownInstr(instr) => {
+                &format!("unknown instruction or invalid arguments: '{instr}'")
+            }
             ParseError::InvalidArg => "invalid argument",
             ParseError::SyntaxError => "syntax error",
-            ParseError::InvalidIdent => "invalid identifier",
+            ParseError::InvalidIdent(s) => &format!("invalid identifier '{s}'"),
+            ParseError::InvalidLabelName(s) => &format!("invalid label name '{s}'"),
             ParseError::InvalidHash => "invalid hash",
             ParseError::UnknownLabel => "reference to undefined label",
             ParseError::NoFunctionDef => "no function definition",
@@ -489,5 +493,27 @@ mod tests {
         ));
         assert!(matches!(Parser::is_func_def("$fibb 33"), None));
         assert!(matches!(Parser::is_func_def("fibb 99:"), None));
+    }
+
+    #[test]
+    fn test_num_locals() {
+        assert_eq!(
+            Parser::get_num_locals(&[
+                ParseToken::Instr(Instr::LoadLocal(0)),
+                ParseToken::Instr(Instr::StoreLocal(1)),
+            ])
+            .unwrap(),
+            2
+        );
+
+        assert_eq!(
+            Parser::get_num_locals(&[ParseToken::Instr(Instr::Nop)]).unwrap(),
+            0
+        );
+
+        assert_eq!(
+            Parser::get_num_locals(&[ParseToken::Instr(Instr::LoadLocal(0))]).unwrap(),
+            1
+        );
     }
 }

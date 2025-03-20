@@ -184,7 +184,7 @@ impl Vm {
 
             let mut return_value: Return = Return::None;
             let mut next_frame: Option<StackFrame> = None;
-            // println!("{instr:?}");
+            //println!("{instr:?}");
             match instr {
                 Instr::LoadArg(i) => {
                     if i >= frame.code_obj.argcount {
@@ -199,6 +199,10 @@ impl Vm {
                         bail!("local index {k} out of bounds");
                     }
                     let arg_name = &frame.code_obj.localnames[k];
+                    //dbg!(&i);
+                    //dbg!(&k);
+                    //dbg!(&arg_name);
+                    //dbg!(&frame.locals);
                     stack.push(frame.locals[arg_name].clone());
                 }
                 Instr::LoadLit(i) => {
