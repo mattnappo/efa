@@ -296,11 +296,10 @@ impl Parser {
                     argument
                 };
 
-                dbg!(&line);
-                dbg!(&argument);
-                dbg!(&int_argument);
-                dbg!(&str_argument);
-                println!("");
+                // dbg!(&line);
+                // dbg!(&argument);
+                // dbg!(&int_argument);
+                // dbg!(&str_argument);
 
                 // Decode instruction
                 let instr = match (base, int_argument, str_argument) {
@@ -388,24 +387,33 @@ impl Parser {
         }
     }
 
+    // TODO: add imports like #include in C
     fn preprocess(contents: &str) -> String {
-        // Remove comments
+        // Remove the comments
         contents
-            .lines() // Split the input into lines
+            .lines()
             .map(|line| {
-                // Find the position of the first '#' character
-                if let Some(pos) = line.find('#') {
-                    // Only keep the part of the line before the '#'
-                    line[..pos].trim()
-                } else {
-                    line.trim() // If there's no '#', keep the whole line
-                }
-            })
-            .filter(|line| !line.is_empty()) // Remove empty lines
-            .collect::<Vec<&str>>()
-            .join("\n")
+                let mut inside_string = false;
+                let mut result = String::new();
+                let mut chars = line.chars().peekable();
 
-        // TODO: add imports like #include in C
+                // Special care taken here to allow .lit "#not a comment"
+                while let Some(c) = chars.next() {
+                    if c == '"' || c == '\'' {
+                        inside_string = !inside_string;
+                        result.push(c);
+                    } else if c == '#' && !inside_string {
+                        break;
+                    } else {
+                        result.push(c);
+                    }
+                }
+
+                result.trim().to_string()
+            })
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<String>>()
+            .join("\n")
     }
 
     fn finalize_parse(partial: PartialParse) -> Result<Parse, ParseError> {
