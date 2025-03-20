@@ -1,16 +1,15 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::fs;
-use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Ok, Result};
 use regex::Regex;
 
 use crate::bytecode::{BinOp, Bytecode, Instr, UnaryOp};
 use crate::hash_from_str;
+use crate::is_valid_name;
 use crate::vm::{CodeObject, Value};
-use crate::{is_valid_name, HASH_SIZE};
 
 pub struct Parser;
 
@@ -24,7 +23,7 @@ struct PartialParse {
 }
 
 #[derive(Debug)]
-enum ParseError {
+pub enum ParseError {
     UnexpectedArgument,
     ExpectedArgument,
     InvalidArg,
@@ -250,7 +249,7 @@ impl Parser {
     }
 
     /// Parse the bytecode of a single function
-    pub fn parse_function(function: &str) -> Result<PartialParse, ParseError> {
+    fn parse_function(function: &str) -> Result<PartialParse, ParseError> {
         let literals = Self::get_literals(function)?;
         let code = function
             .lines()

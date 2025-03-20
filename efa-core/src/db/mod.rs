@@ -250,7 +250,8 @@ impl Database {
         Ok(self.conn.backup(DatabaseName::Main, path, None)?)
     }
 
-    pub fn dump(&self) -> Result<()> {
+    /// Print the contents of a database, in compilable form
+    pub fn disassemble(&self) -> Result<()> {
         self.get_functions()?
             .into_iter()
             .try_for_each(|(name, hash)| {

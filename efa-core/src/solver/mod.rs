@@ -6,8 +6,6 @@ use std::collections::{HashMap, HashSet};
 use anyhow::Result;
 
 use crate::bytecode::Instr;
-use crate::db::Database;
-use crate::Hash;
 
 mod node;
 pub mod resolve_dyn;

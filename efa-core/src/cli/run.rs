@@ -19,7 +19,7 @@ enum Command {
         input_file: String,
         db_path: Option<String>,
     },
-    Dump {
+    Dis {
         db_path: String,
     },
 }
@@ -48,8 +48,8 @@ fn run_scratch_file(file: &str, db_path: Option<&str>) -> Result<i32> {
     Ok(code)
 }
 
-fn dump_db(db_path: &str) -> Result<()> {
-    Database::open(db_path)?.dump()
+fn disassemble_db(db_path: &str) -> Result<()> {
+    Database::open(db_path)?.disassemble()
 }
 
 fn main() -> Result<()> {
@@ -61,8 +61,8 @@ fn main() -> Result<()> {
             db_path,
         } => run_scratch_file(&input_file, db_path.as_deref())
             .expect(&format!("ERROR {}", input_file)),
-        Command::Dump { db_path } => {
-            dump_db(&db_path)?;
+        Command::Dis { db_path } => {
+            disassemble_db(&db_path)?;
             0
         }
     };

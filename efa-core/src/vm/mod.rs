@@ -920,10 +920,8 @@ pub mod tests {
             ],
         };
 
-        let hash = vm.db.insert_code_object_with_name(&func_a, "main").unwrap();
-
+        vm.db.insert_code_object_with_name(&func_a, "main").unwrap();
         let code = vm.run_main_function().unwrap();
-
         assert_eq!(code, 70);
     }
 
