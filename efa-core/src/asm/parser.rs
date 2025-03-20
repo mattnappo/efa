@@ -5,6 +5,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Ok, Result};
+use regex::Regex;
 
 use crate::bytecode::{BinOp, Bytecode, Instr, UnaryOp};
 use crate::vm::{CodeObject, Value};
@@ -24,16 +25,21 @@ struct PartialParse {
 enum ParseError {
     UnexpectedArgument,
     ExpectedArgument,
-    /// Unknown instruction mnemonic, or bad arguments (missing/present)
-    UnknownInstr,
     InvalidArg,
     SyntaxError,
+
     InvalidIdent,
     InvalidHash,
-    UnknownLabel,
-    NoFunctionDef,
+    InvalidStrLit,
     InvalidFuncDef,
     InvalidLiteral,
+
+    /// Unknown instruction mnemonic, or bad arguments (missing/present)
+    UnknownInstr,
+    UnknownLabel,
+
+    NoFunctionDef,
+    RegexError(String),
 }
 
 #[derive(Debug)]
@@ -157,10 +163,10 @@ impl Parser {
     fn get_literals(function: &str) -> Result<Vec<Value>, ParseError> {
         let code = function.lines();
 
-        code.filter(|line| line.chars().nth(0).unwrap() == '#')
+        code.filter(|line| line.chars().nth(0).unwrap() == '.')
             .filter_map(|line| {
                 let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() != 2 {
+                if parts.len() < 2 {
                     return Some(Err(ParseError::ExpectedArgument));
                 }
 
@@ -182,9 +188,9 @@ impl Parser {
                 }
 
                 // String case
-                if arg_chars[0] == '"' && arg_chars[arg.len() - 1] == '"' {
-                    let lit = &arg[1..arg.len() - 1];
-                    return Some(Result::Ok(Value::string(lit)));
+                if arg_chars[0] == '"' {
+                    let s = Self::get_str_lit(line).map(|s| Value::String(s));
+                    return Some(s);
                 }
 
                 // Hash case
@@ -208,12 +214,30 @@ impl Parser {
             .collect::<Result<Vec<Value>, ParseError>>()
     }
 
+    fn get_str_lit(line: &str) -> Result<String, ParseError> {
+        let pattern = r#"\.lit\s*\"([^\"]*)\""#;
+        let re =
+            Regex::new(pattern).map_err(|e| ParseError::RegexError(e.to_string()))?;
+        let matches: Vec<String> = re
+            .captures_iter(line)
+            .filter_map(|cap| cap.get(1)) // Extract the first capture group
+            .map(|m| m.as_str().to_string()) // Convert each match to a String
+            .collect(); // Collect results into a Vec<String>
+
+        // Check if there's exactly one match
+        if matches.len() == 1 {
+            Result::Ok(matches[0].clone())
+        } else {
+            Err(ParseError::InvalidStrLit)
+        }
+    }
+
     /// Parse the bytecode of a single function
     pub fn parse_function(function: &str) -> Result<PartialParse, ParseError> {
         let literals = Self::get_literals(function)?;
         let code = function
             .lines()
-            .filter(|line| !line.contains("#"))
+            .filter(|line| !line.contains("."))
             .collect::<Vec<&str>>()
             .join("\n");
         let (label_names, label_offsets) = Self::get_labels(&code)?;
@@ -406,6 +430,8 @@ impl Display for ParseError {
             ParseError::NoFunctionDef => "no function definition",
             ParseError::InvalidFuncDef => "invalid function definition",
             ParseError::InvalidLiteral => "invalid literal definition",
+            ParseError::InvalidStrLit => "invalid string literal",
+            ParseError::RegexError(e) => &format!("regex: {e}"),
         };
         write!(f, "parser error: {msg}")
     }

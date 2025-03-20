@@ -24,6 +24,6 @@ $main 0:
     load_dyn $foo
     call
 
-    #lit 0
+    .lit 0
     load_lit 0
     ret_val

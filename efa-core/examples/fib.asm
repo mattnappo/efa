@@ -1,7 +1,7 @@
 $fib 1:
-    #lit 0
-    #lit 1
-    #lit 2
+    .lit 0
+    .lit 1
+    .lit 2
     load_arg 0
     load_lit 0
     eq
@@ -27,7 +27,7 @@ L0:
     ret_val
 
 $main 0:
-    #lit 20
+    .lit 20
     load_lit 0
     load_dyn $fib
     call

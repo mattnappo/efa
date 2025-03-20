@@ -20,3 +20,4 @@ syn = "2.0.98"
 clap = { version = "4.5.31", features = ["derive"] }
 derivative = "2.2.0"
 bimap = "0.6.3"
+regex = "1.11.1"

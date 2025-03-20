@@ -300,7 +300,7 @@ impl Vm {
                         // Get the return value from the top of current frame's stack
                         if stack.is_empty() {
                             bail!(
-                                "non-void function requires a return value on the stack {:?}", frame.code_obj
+                                "non-void function requires a return value on the stack"
                             );
                         } else {
                             return_value = Return::Value(stack.pop().unwrap());
