@@ -303,6 +303,7 @@ impl Vm {
                     } else {
                         // Get the return value from the top of current frame's stack
                         if stack.is_empty() {
+                            dbg!(&frame);
                             bail!(
                                 "non-void function requires a return value on the stack"
                             );

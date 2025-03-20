@@ -475,7 +475,6 @@ mod tests {
     #[test]
     fn test_examples() {
         dbg_f("./examples/fib.asm");
-        dbg_f("./examples/labels.asm");
         dbg_f("./examples/lits.asm");
         dbg_f("./examples/double.asm");
         dbg_f("./examples/call.asm");

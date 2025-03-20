@@ -74,39 +74,19 @@ fn main() -> Result<()> {
 mod test {
     use super::*;
 
-    fn dbg_example(file: &str) -> bool {
-        match fake_panic(file, run_scratch_file(file, None)) {
-            Some(u) => {
-                eprintln!("{file} -> {u}");
-                false
-            }
-            None => true,
-        }
-    }
-
-    fn fake_panic<T>(file: &str, r: Result<T, anyhow::Error>) -> Option<T> {
-        match r {
-            Ok(t) => Some(t),
-            Err(e) => {
-                eprintln!("ERROR {file}: {e}");
-                None
-            }
-        }
+    macro_rules! run {
+        ($file:expr) => {
+            run_scratch_file($file, None).expect(&format!("ERROR {}", $file))
+        };
     }
 
     #[test]
     fn test_examples() {
-        let failed = std::fs::read_dir("examples/")
-            .unwrap()
-            .map(|res| res.map(|e| e.path()))
-            .collect::<Result<Vec<_>, std::io::Error>>()
-            .unwrap()
-            .into_iter()
-            .map(|ex| dbg_example(ex.to_str().unwrap()))
-            .any(|x| x);
-
-        if failed {
-            panic!();
-        }
+        assert_eq!(run!("examples/args.asm"), 6);
+        assert_eq!(run!("examples/call.asm"), 7);
+        assert_eq!(run!("examples/double.asm"), 0);
+        assert_eq!(run!("examples/fib.asm"), 6765);
+        assert_eq!(run!("examples/lits.asm"), 44);
+        assert_eq!(run!("examples/sum_squares.asm"), 55);
     }
 }

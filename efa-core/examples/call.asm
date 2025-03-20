@@ -2,7 +2,7 @@ $foo 0:
     load_dyn $bar
     call
 
-    ret
+    ret_val
 
 $bar 0:
     load_dyn $baz
@@ -10,20 +10,19 @@ $bar 0:
 
     load_dyn $cap
     call
-    ret
+    ret_val
 
 $baz 0:
     nop
     ret
 
 $cap 0:
-    nop
-    ret
+    .lit 7
+    load_lit 0
+    ret_val
 
 $main 0:
     load_dyn $foo
     call
 
-    .lit 0
-    load_lit 0
     ret_val
