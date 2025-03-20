@@ -59,7 +59,8 @@ fn main() -> Result<()> {
         Command::Run {
             input_file,
             db_path,
-        } => run_scratch_file(&input_file, db_path.as_deref())?,
+        } => run_scratch_file(&input_file, db_path.as_deref())
+            .expect(&format!("ERROR {}", input_file)),
         Command::Dump { db_path } => {
             dump_db(&db_path)?;
             0
@@ -67,4 +68,45 @@ fn main() -> Result<()> {
     };
 
     std::process::exit(code)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn dbg_example(file: &str) -> bool {
+        match fake_panic(file, run_scratch_file(file, None)) {
+            Some(u) => {
+                eprintln!("{file} -> {u}");
+                false
+            }
+            None => true,
+        }
+    }
+
+    fn fake_panic<T>(file: &str, r: Result<T, anyhow::Error>) -> Option<T> {
+        match r {
+            Ok(t) => Some(t),
+            Err(e) => {
+                eprintln!("ERROR {file}: {e}");
+                None
+            }
+        }
+    }
+
+    #[test]
+    fn test_examples() {
+        let failed = std::fs::read_dir("examples/")
+            .unwrap()
+            .map(|res| res.map(|e| e.path()))
+            .collect::<Result<Vec<_>, std::io::Error>>()
+            .unwrap()
+            .into_iter()
+            .map(|ex| dbg_example(ex.to_str().unwrap()))
+            .any(|x| x);
+
+        if failed {
+            panic!();
+        }
+    }
 }

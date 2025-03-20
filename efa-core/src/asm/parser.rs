@@ -17,6 +17,7 @@ pub struct Parser;
 struct PartialParse {
     tokens: Vec<ParseToken>,
     labels: Vec<usize>,
+    num_locals: usize,
     is_void: bool,
     literals: Vec<Value>,
 }
@@ -68,7 +69,7 @@ impl Parser {
             .into_iter()
             .map(|func| {
                 Self::parse_function(&func)
-                    .and_then(Self::resolve_parse)
+                    .and_then(Self::finalize_parse)
                     .map_err(anyhow::Error::msg)
             })
             .collect::<Result<Vec<Parse>>>()
@@ -163,7 +164,8 @@ impl Parser {
     fn get_literals(function: &str) -> Result<Vec<Value>, ParseError> {
         let code = function.lines();
 
-        code.filter(|line| line.chars().nth(0).unwrap() == '.')
+        code.filter(|line| !line.is_empty())
+            .filter(|line| line.chars().nth(0).unwrap() == '.')
             .filter_map(|line| {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() < 2 {
@@ -214,17 +216,31 @@ impl Parser {
             .collect::<Result<Vec<Value>, ParseError>>()
     }
 
+    fn get_num_locals(tokens: &[ParseToken]) -> Result<usize, ParseError> {
+        let num = tokens
+            .into_iter()
+            .filter_map(|token| match token {
+                ParseToken::Instr(Instr::LoadLocal(i))
+                | ParseToken::Instr(Instr::StoreLocal(i)) => Some(i),
+                _ => None,
+            })
+            .max()
+            .copied()
+            .unwrap_or(0);
+
+        Result::Ok(num)
+    }
+
     fn get_str_lit(line: &str) -> Result<String, ParseError> {
         let pattern = r#"\.lit\s*\"([^\"]*)\""#;
         let re =
             Regex::new(pattern).map_err(|e| ParseError::RegexError(e.to_string()))?;
         let matches: Vec<String> = re
             .captures_iter(line)
-            .filter_map(|cap| cap.get(1)) // Extract the first capture group
-            .map(|m| m.as_str().to_string()) // Convert each match to a String
-            .collect(); // Collect results into a Vec<String>
+            .filter_map(|cap| cap.get(1))
+            .map(|m| m.as_str().to_string())
+            .collect();
 
-        // Check if there's exactly one match
         if matches.len() == 1 {
             Result::Ok(matches[0].clone())
         } else {
@@ -291,7 +307,7 @@ impl Parser {
                     ("load_arg", Some(arg), None) => Instr::LoadArg(arg),
                     ("load_loc", Some(arg), None) => Instr::LoadLocal(arg),
                     ("load_lit", Some(arg), None) => Instr::LoadLit(arg),
-                    ("str_loc", Some(arg), None) => Instr::StoreLocal(arg),
+                    ("store_loc", Some(arg), None) => Instr::StoreLocal(arg),
                     ("pop", None, None) => Instr::Pop,
                     ("dup", None, None) => Instr::Dup,
 
@@ -347,9 +363,12 @@ impl Parser {
             })
             .collect::<Result<Vec<ParseToken>, ParseError>>()?;
 
+        let num_locals = Self::get_num_locals(&tokens)?;
+
         Result::Ok(PartialParse {
             tokens,
             labels: label_offsets,
+            num_locals,
             is_void,
             literals,
         })
@@ -374,7 +393,7 @@ impl Parser {
         }
     }
 
-    fn resolve_parse(partial: PartialParse) -> Result<Parse, ParseError> {
+    fn finalize_parse(partial: PartialParse) -> Result<Parse, ParseError> {
         let (name, argcount) = partial
             .tokens
             .iter()
@@ -396,7 +415,8 @@ impl Parser {
             })
             .collect();
 
-        let localnames = (0..=argcount)
+        //let localnames = (0..=(argcount + partial.num_locals))
+        let localnames = (0..argcount)
             .collect::<Vec<usize>>()
             .into_iter()
             .map(|t| format!("x{t}"))
@@ -449,10 +469,12 @@ mod tests {
     }
 
     #[test]
-    fn test_1() {
-        // dbg_f("./examples/fib.asm");
-        // dbg_f("./examples/labels.asm");
+    fn test_examples() {
+        dbg_f("./examples/fib.asm");
+        dbg_f("./examples/labels.asm");
         dbg_f("./examples/lits.asm");
+        dbg_f("./examples/double.asm");
+        dbg_f("./examples/call.asm");
     }
 
     #[test]
