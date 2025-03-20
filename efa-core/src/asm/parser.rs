@@ -68,6 +68,7 @@ pub struct Parse {
 impl Parser {
     pub fn parse_file<P: AsRef<Path>>(path: P) -> Result<Vec<Parse>> {
         let contents = fs::read_to_string(&path)?;
+        let contents = Self::preprocess(&contents);
         let functions = Self::split_functions(&contents).map_err(anyhow::Error::msg)?;
         functions
             .into_iter()
@@ -387,6 +388,26 @@ impl Parser {
         }
     }
 
+    fn preprocess(contents: &str) -> String {
+        // Remove comments
+        contents
+            .lines() // Split the input into lines
+            .map(|line| {
+                // Find the position of the first '#' character
+                if let Some(pos) = line.find('#') {
+                    // Only keep the part of the line before the '#'
+                    line[..pos].trim()
+                } else {
+                    line.trim() // If there's no '#', keep the whole line
+                }
+            })
+            .filter(|line| !line.is_empty()) // Remove empty lines
+            .collect::<Vec<&str>>()
+            .join("\n")
+
+        // TODO: add imports like #include in C
+    }
+
     fn finalize_parse(partial: PartialParse) -> Result<Parse, ParseError> {
         let (name, argcount) = partial
             .tokens
@@ -471,6 +492,7 @@ mod tests {
         dbg_f("./examples/lits.asm");
         dbg_f("./examples/double.asm");
         dbg_f("./examples/call.asm");
+        dbg_f("./examples/comments.asm");
     }
 
     #[test]
