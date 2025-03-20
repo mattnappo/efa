@@ -2,7 +2,8 @@ use crate::vm::CodeObject;
 use crate::vm::Value;
 use crate::Hash;
 
-pub fn disassemble_function(name: &str, _hash: &Hash, obj: &CodeObject) {
+pub fn disassemble_function(name: &str, hash: &Hash, obj: &CodeObject) {
+    println!("# 0x{}", hex::encode(hash));
     println!("${name} {}:", obj.argcount);
     obj.litpool.iter().for_each(|lit| {
         println!(
@@ -15,5 +16,5 @@ pub fn disassemble_function(name: &str, _hash: &Hash, obj: &CodeObject) {
             }
         )
     });
-    println!("{}", obj.code);
+    println!("{}\n", obj.code);
 }

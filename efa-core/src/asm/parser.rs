@@ -311,14 +311,11 @@ impl Parser {
                     ("dup", None, None) => Instr::Dup,
 
                     // TODO
+                    ("load_func", None, Some(hash)) => {
+                        Instr::LoadFunc(hash_from_str(hash).map_err(ParseError::Error)?)
+                    }
                     ("load_func", None, None) => {
-                        if let Some(hash) = str_argument {
-                            Instr::LoadFunc(
-                                hash_from_str(hash).map_err(ParseError::Error)?,
-                            )
-                        } else {
-                            return Err(ParseError::ExpectedArgument);
-                        }
+                        return Err(ParseError::ExpectedArgument);
                     }
                     ("load_dyn", None, Some(arg)) => {
                         let func_name = &arg[1..];
