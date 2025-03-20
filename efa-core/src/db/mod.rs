@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::asm::dis::disassemble_function;
 use crate::build_hash;
 use crate::{is_valid_name, vm::CodeObject, Hash, HASH_SIZE};
 
@@ -257,9 +258,8 @@ impl Database {
         self.get_functions()?
             .into_iter()
             .try_for_each(|(name, hash)| {
-                println!("{name}");
                 self.get_code_object(&hash)
-                    .and_then(|obj| Ok(println!("{}", obj.code)))
+                    .and_then(|obj| Ok(disassemble_function(&name, &hash, &obj)))
             })
     }
 }

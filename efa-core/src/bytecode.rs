@@ -100,7 +100,7 @@ impl fmt::Display for Bytecode {
         let code = self
             .code
             .iter()
-            .map(|i| format!("   {i}"))
+            .map(|i| format!("    {i}"))
             .collect::<Vec<_>>();
         write!(f, "{}", &code[..].join("\n"))
     }

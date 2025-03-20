@@ -291,18 +291,17 @@ impl Parser {
 
                 // Setup arguments
                 let int_argument = argument.map(|a| a.parse::<usize>().ok()).flatten();
-                let hash_argument = argument.map(|a| hex::decode(a).ok()).flatten(); // Remove the 0x
                 let str_argument = if int_argument.is_some() {
                     None
                 } else {
                     argument
                 };
 
-                // dbg!(&l);
-                // dbg!(&argument);
-                // dbg!(&int_argument);
-                // dbg!(&hash_argument);
-                // dbg!(&str_argument);
+                dbg!(&line);
+                dbg!(&argument);
+                dbg!(&int_argument);
+                dbg!(&str_argument);
+                println!("");
 
                 // Decode instruction
                 let instr = match (base, int_argument, str_argument) {
@@ -315,12 +314,13 @@ impl Parser {
 
                     // TODO
                     ("load_func", None, None) => {
-                        if let Some(hash) = hash_argument {
-                            Instr::LoadFunc(
-                                hash[..HASH_SIZE]
-                                    .try_into()
-                                    .map_err(|_| ParseError::InvalidHash)?,
-                            )
+                        if let Some(hash) = str_argument {
+                            todo!()
+                            // Instr::LoadFunc(
+                            // hash[..HASH_SIZE]
+                            // .try_into()
+                            // .map_err(|_| ParseError::InvalidHash)?,
+                            // )
                         } else {
                             return Err(ParseError::ExpectedArgument);
                         }
