@@ -251,13 +251,13 @@ impl Database {
     }
 
     /// Print the contents of a database, in compilable form
-    pub fn disassemble(&self) -> Result<()> {
+    pub fn disassemble(&self) -> Result<String> {
         self.get_functions()?
             .into_iter()
-            .try_for_each(|(name, hash)| {
-                self.get_code_object(&hash).and_then(|obj| {
-                    disassemble_function(&name, &hash, &obj).map_err(anyhow::Error::msg)
-                })
+            .try_fold(String::new(), |acc, (name, hash)| {
+                self.get_code_object(&hash)
+                    .and_then(|obj| disassemble_function(&name, &hash, &obj))
+                    .map(|disassembled| acc + &disassembled + "\n")
             })
     }
 }

@@ -3,6 +3,7 @@ use anyhow::{anyhow, bail, Result};
 #[macro_use]
 pub mod bytecode;
 pub mod asm;
+pub mod cli;
 pub mod db;
 #[allow(dead_code)]
 pub mod solver;

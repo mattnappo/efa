@@ -5,7 +5,11 @@ use crate::vm::CodeObject;
 use crate::vm::Value;
 use crate::Hash;
 
-pub fn disassemble_function(name: &str, hash: &Hash, obj: &CodeObject) -> fmt::Result {
+pub fn disassemble_function(
+    name: &str,
+    hash: &Hash,
+    obj: &CodeObject,
+) -> anyhow::Result<String> {
     let mut dis = String::new();
 
     // Function header
@@ -37,7 +41,6 @@ pub fn disassemble_function(name: &str, hash: &Hash, obj: &CodeObject) -> fmt::R
 
     // Write out
     let code = code.as_slice().join("\n");
-    writeln!(dis, "{}\n", code)?;
-    print!("{dis}");
-    Ok(())
+    writeln!(dis, "{}", code)?;
+    Ok(dis)
 }
