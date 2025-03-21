@@ -79,6 +79,24 @@ impl Bytecode {
     pub fn new(code: Vec<Instr>) -> Bytecode {
         Bytecode { code }
     }
+
+    pub fn format_with_labelnames(bytecode: &Bytecode) -> Vec<String> {
+        bytecode
+            .code
+            .iter()
+            .map(|instr| match instr {
+                Instr::Jump(i) => format!("    jmp L{i}"),
+                Instr::JumpT(i) => format!("    jmp_t L{i}"),
+                Instr::JumpF(i) => format!("    jmp_f L{i}"),
+                Instr::JumpEq(i) => format!("    jmp_eq L{i}"),
+                Instr::JumpGt(i) => format!("    jmp_gt L{i}"),
+                Instr::JumpGe(i) => format!("    jmp_ge L{i}"),
+                Instr::JumpLt(i) => format!("    jmp_lt L{i}"),
+                Instr::JumpLe(i) => format!("    jmp_le L{i}"),
+                _ => format!("    {instr}"),
+            })
+            .collect()
+    }
 }
 
 impl Deref for Bytecode {

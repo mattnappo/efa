@@ -255,8 +255,9 @@ impl Database {
         self.get_functions()?
             .into_iter()
             .try_for_each(|(name, hash)| {
-                self.get_code_object(&hash)
-                    .and_then(|obj| Ok(disassemble_function(&name, &hash, &obj)))
+                self.get_code_object(&hash).and_then(|obj| {
+                    disassemble_function(&name, &hash, &obj).map_err(anyhow::Error::msg)
+                })
             })
     }
 }
