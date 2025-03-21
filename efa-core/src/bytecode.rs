@@ -42,6 +42,7 @@ pub enum Instr {
     Call,
     CallSelf,
     Return,
+    ReturnVal,
 
     Jump(usize),
     JumpT(usize),
@@ -124,6 +125,7 @@ impl fmt::Display for Instr {
                 Instr::Call => "call".to_string(),
                 Instr::CallSelf => "call_self".to_string(),
                 Instr::Return => "ret".to_string(),
+                Instr::ReturnVal => "ret_val".to_string(),
 
                 Instr::Jump(i) => format!("jmp {i}"),
                 Instr::JumpT(i) => format!("jmp_t {i}"),

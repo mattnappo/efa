@@ -18,7 +18,6 @@ struct PartialParse {
     tokens: Vec<ParseToken>,
     labels: Vec<usize>,
     num_locals: usize,
-    is_void: bool,
     literals: Vec<Value>,
 }
 
@@ -259,7 +258,6 @@ impl Parser {
         let (label_names, label_offsets) = Self::get_labels(&code)?;
         let code = code.lines();
 
-        let mut is_void: bool = true;
         let tokens = code
             .map(|line| {
                 let parts = line.split_whitespace().collect::<Vec<&str>>();
@@ -328,10 +326,7 @@ impl Parser {
                     ("call", None, None) => Instr::Call,
                     ("call_self", None, None) => Instr::CallSelf,
                     ("ret", None, None) => Instr::Return,
-                    ("ret_val", None, None) => {
-                        is_void = false;
-                        Instr::Return
-                    }
+                    ("ret_val", None, None) => Instr::ReturnVal,
 
                     ("add", None, None) => Instr::BinOp(BinOp::Add),
                     ("mul", None, None) => Instr::BinOp(BinOp::Mul),
@@ -362,7 +357,6 @@ impl Parser {
             tokens,
             labels: label_offsets,
             num_locals,
-            is_void,
             literals,
         })
     }
@@ -448,7 +442,6 @@ impl Parser {
             code_obj: CodeObject {
                 litpool: partial.literals,
                 argcount,
-                is_void: partial.is_void,
                 localnames,
                 labels: partial.labels,
                 code: Bytecode::new(code),

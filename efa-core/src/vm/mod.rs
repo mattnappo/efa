@@ -25,7 +25,6 @@ pub struct Vm {
 pub struct CodeObject {
     pub(crate) litpool: Vec<Value>,
     pub(crate) argcount: usize,
-    pub(crate) is_void: bool,
     // TODO: change to be num_locals? then the stack frame locals could be vec<value>
     // Worse debuggability
     pub(crate) localnames: Vec<String>,
@@ -47,12 +46,6 @@ struct StackFrame {
     locals: HashMap<String, Value>,
     instruction: usize,
     // maybe add some debug info like a name
-}
-
-enum Return {
-    Value(Value),
-    Void,
-    None,
 }
 
 /// A value that can be on the stack.
@@ -180,7 +173,7 @@ impl Vm {
             let instr = frame.code_obj.code[frame.instruction].clone();
             let mut next_instr_ptr = frame.instruction + 1; // Default
 
-            let mut return_value: Return = Return::None;
+            let mut return_value = None;
             let mut next_frame: Option<StackFrame> = None;
             //println!("{instr:?}");
             match instr {
@@ -294,20 +287,17 @@ impl Vm {
                 }
 
                 Instr::Return => {
+                    return_value = Some(None);
+                }
+                Instr::ReturnVal => {
                     // Return value is whatever is on the top of the stack
                     // If we have `return x`, then we (the compiler) LOAD x to push it to the top of the stack
-                    if frame.code_obj.is_void {
-                        return_value = Return::Void;
+                    // Get the return value from the top of current frame's stack
+                    if stack.is_empty() {
+                        bail!("non-void function requires a return value on the stack");
                     } else {
-                        // Get the return value from the top of current frame's stack
-                        if stack.is_empty() {
-                            bail!(
-                                "non-void function requires a return value on the stack"
-                            );
-                        } else {
-                            return_value = Return::Value(stack.pop().unwrap());
-                        }
-                    };
+                        return_value = Some(Some(stack.pop().unwrap()));
+                    }
                 }
 
                 Instr::Jump(label) => next_instr_ptr = frame.code_obj.labels[label],
@@ -460,7 +450,7 @@ impl Vm {
 
             // Handle a return
             match return_value {
-                Return::Value(val) => {
+                Some(Some(val)) => {
                     // If the main function returns
                     if call_depth == 1 {
                         // Note: this case keeps the main function's frame around
@@ -476,11 +466,11 @@ impl Vm {
                     // Push the returning function's return value onto the caller's stack
                     self.call_stack[call_depth - 2].stack.push(val);
                 }
-                Return::Void => {
+                Some(None) => {
                     self.call_stack.pop();
                 }
                 // Instruction was not a return
-                Return::None => {}
+                None => {}
             }
         }
 
@@ -645,7 +635,6 @@ pub mod tests {
         CodeObject {
             litpool: vec![Value::int(5), Value::string("hello")],
             argcount: 2, // x and y
-            is_void: false,
             labels: Vec::new(),
             localnames: vec!["x".into(), "y".into(), "z".into()],
             code,
@@ -676,7 +665,6 @@ pub mod tests {
         CodeObject {
             litpool: vec![Value::int(5), Value::String(s)],
             argcount: 2, // x and y
-            is_void: false,
             labels: Vec::new(),
             localnames: vec!["x".into(), "y".into(), "z".into()],
             code,
@@ -687,7 +675,6 @@ pub mod tests {
         CodeObject {
             litpool,
             argcount: 2, // x and y
-            is_void: false,
             labels: Vec::new(),
             localnames: vec!["x".into(), "y".into(), "z".into()],
             code,
@@ -887,7 +874,6 @@ pub mod tests {
         let func_b = CodeObject {
             litpool: vec![Value::int(4), Value::int(3)],
             argcount: 0,
-            is_void: false,
             localnames: vec![],
             labels: Vec::new(),
 
@@ -895,7 +881,7 @@ pub mod tests {
                 Instr::LoadLit(0), // 4
                 Instr::LoadLit(1), // 3
                 Instr::BinOp(BinOp::Add),
-                Instr::Return
+                Instr::ReturnVal
             ],
         };
 
@@ -907,7 +893,6 @@ pub mod tests {
         let func_a = CodeObject {
             litpool: vec![Value::I32(10)],
             argcount: 0,
-            is_void: false,
             localnames: vec![],
             labels: Vec::new(),
 
@@ -916,7 +901,7 @@ pub mod tests {
                 Instr::Call,
                 Instr::LoadLit(0),
                 Instr::BinOp(BinOp::Mul),
-                Instr::Return
+                Instr::ReturnVal
             ],
         };
 
@@ -932,7 +917,6 @@ pub mod tests {
         let func_b = CodeObject {
             litpool: vec![Value::int(4), Value::int(3)],
             argcount: 0,
-            is_void: true,
             localnames: vec![],
             labels: Vec::new(),
 
@@ -952,7 +936,6 @@ pub mod tests {
         let func_a = CodeObject {
             litpool: vec![],
             argcount: 0,
-            is_void: true,
             localnames: vec![],
             labels: Vec::new(),
             code: bytecode![Instr::LoadFunc(hash), Instr::Call, Instr::Return],
@@ -969,10 +952,9 @@ pub mod tests {
         let func = CodeObject {
             litpool: vec![],
             argcount: 0,
-            is_void: false,
             localnames: vec![],
             labels: Vec::new(),
-            code: bytecode![Instr::Return],
+            code: bytecode![Instr::ReturnVal],
         };
         vm.db.insert_code_object_with_name(&func, "main").unwrap();
         assert!(vm.run_main_function().is_err());
@@ -984,10 +966,9 @@ pub mod tests {
         let func = CodeObject {
             litpool: vec![Value::string("break")],
             argcount: 0,
-            is_void: false,
             localnames: vec![],
             labels: Vec::new(),
-            code: bytecode![Instr::LoadLit(0), Instr::Return],
+            code: bytecode![Instr::LoadLit(0), Instr::ReturnVal],
         };
         vm.db.insert_code_object_with_name(&func, "main").unwrap();
         assert!(vm.run_main_function().is_err());
@@ -999,10 +980,9 @@ pub mod tests {
         let func = CodeObject {
             litpool: vec![Value::I32(0)],
             argcount: 0,
-            is_void: false,
             localnames: vec![],
             labels: Vec::new(),
-            code: bytecode![Instr::LoadLit(0), Instr::Return],
+            code: bytecode![Instr::LoadLit(0), Instr::ReturnVal],
         };
         vm.db.insert_code_object_with_name(&func, "main").unwrap();
         assert_eq!(vm.run_main_function().unwrap(), 0);
@@ -1014,7 +994,6 @@ pub mod tests {
         let fib = CodeObject {
             litpool: vec![Value::I32(0), Value::I32(1), Value::I32(2)],
             argcount: 1,
-            is_void: false,
             localnames: vec!["n".into()],
             labels: vec![18],
             code: bytecode![
@@ -1038,10 +1017,10 @@ pub mod tests {
                 Instr::CallSelf,
                 // fib(n-1) + fib(n-2)
                 Instr::BinOp(BinOp::Add),
-                Instr::Return,
+                Instr::ReturnVal,
                 // Label 0 (line 18)
                 Instr::LoadArg(0), // push n
-                Instr::Return
+                Instr::ReturnVal
             ],
         };
 
@@ -1051,14 +1030,13 @@ pub mod tests {
             let main = CodeObject {
                 litpool: vec![Value::I32(n)],
                 argcount: 0,
-                is_void: false,
                 localnames: vec![],
                 labels: Vec::new(),
                 code: bytecode![
                     Instr::LoadLit(0),
                     Instr::LoadFunc(hash),
                     Instr::Call,
-                    Instr::Return
+                    Instr::ReturnVal
                 ],
             };
             vm.db

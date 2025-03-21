@@ -38,6 +38,8 @@ fn run_scratch_file(file: &str, db_path: Option<&str>) -> Result<i32> {
         Vm::new()?
     };
 
+    //dbg!(&resolved);
+
     resolved
         .into_iter()
         .map(|(name, obj)| vm.db.insert_code_object_with_name(&obj, &name))
