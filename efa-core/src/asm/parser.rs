@@ -372,6 +372,7 @@ impl Parser {
             "jmp_t" => Result::Ok(Instr::JumpT(*label_idx)),
             "jmp_f" => Result::Ok(Instr::JumpF(*label_idx)),
             "jmp_eq" => Result::Ok(Instr::JumpEq(*label_idx)),
+            "jmp_ne" => Result::Ok(Instr::JumpNe(*label_idx)),
             "jmp_gt" => Result::Ok(Instr::JumpGt(*label_idx)),
             "jmp_ge" => Result::Ok(Instr::JumpGe(*label_idx)),
             "jmp_lt" => Result::Ok(Instr::JumpLt(*label_idx)),

@@ -182,7 +182,11 @@ impl Vm {
                         bail!("argument index {i} out of bounds");
                     }
                     let arg_name = &frame.code_obj.localnames[i];
-                    stack.push(frame.locals[arg_name].clone());
+
+                    let val = frame.locals.get(arg_name).ok_or_else(|| {
+                        anyhow!("argument '{arg_name}' with index {i} is out of bounds")
+                    })?;
+                    stack.push(val.clone());
                 }
                 Instr::LoadLocal(i) => {
                     let k = i + frame.code_obj.argcount;
@@ -194,7 +198,11 @@ impl Vm {
                     //dbg!(&k);
                     //dbg!(&arg_name);
                     //dbg!(&frame.locals);
-                    stack.push(frame.locals[arg_name].clone());
+                    //dbg!(&frame.code_obj.localnames);
+                    let val = frame.locals.get(arg_name).ok_or_else(|| {
+                        anyhow!("local '{arg_name}' with index {i} is out of bounds")
+                    })?;
+                    stack.push(val.clone());
                 }
                 Instr::LoadLit(i) => {
                     // TODO: throw err with out of bounds
@@ -341,6 +349,18 @@ impl Vm {
                         next_instr_ptr = frame.code_obj.labels[label];
                     }
                 }
+                Instr::JumpNe(label) => {
+                    if stack.len() < 2 {
+                        bail!("cannot perform comparison: stack underflow");
+                    }
+
+                    let rhs = stack.pop().unwrap();
+                    let lhs = stack.pop().unwrap();
+
+                    if lhs != rhs {
+                        next_instr_ptr = frame.code_obj.labels[label];
+                    }
+                }
                 Instr::JumpGt(label) => {
                     if stack.len() < 2 {
                         bail!("cannot perform comparison: stack underflow");
@@ -434,7 +454,9 @@ impl Vm {
                 Instr::MakeStruct => {}
 
                 Instr::Dbg => {
-                    let tos = stack.last().unwrap();
+                    let tos = stack.last().ok_or_else(|| {
+                        anyhow!("stack underflow: cannot 'dbg' with empty stack")
+                    })?;
                     println!("{tos:?} ");
                 }
                 Instr::Nop => {}
