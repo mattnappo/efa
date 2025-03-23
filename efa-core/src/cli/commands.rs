@@ -59,6 +59,8 @@ mod test {
         assert_eq!(run!("examples/fib.asm"), 6765);
         assert_eq!(run!("examples/lits.asm"), 44);
         assert_eq!(run!("examples/sum_squares.asm"), 55);
+        assert_eq!(run!("examples/primes.asm"), 97);
+        assert_eq!(run!("examples/isqrt.asm"), 225);
     }
 
     fn roundtrip_file(file: &str) {

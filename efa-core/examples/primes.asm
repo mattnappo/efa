@@ -51,6 +51,8 @@ btm:
     jmp_f inc
     # i is prime
     load_loc 0 # i
+    load_loc 0
+    store_loc 3 # store into last_prime
     dbg
     pop
 inc:
@@ -62,7 +64,8 @@ inc:
     jmp top
 
 exit:
-    ret
+    load_loc 3
+    ret_val
 
 $main 0:
     .lit 0
@@ -72,5 +75,4 @@ $main 0:
     load_dyn $biggest_prime_under
     call
 
-    load_lit 0
     ret_val
