@@ -300,6 +300,7 @@ impl Parser {
 
                 // Decode instruction
                 let instr = match (base, int_argument, str_argument) {
+                    // Basic stack management and variables
                     ("load_arg", Some(arg), None) => Instr::LoadArg(arg),
                     ("load_loc", Some(arg), None) => Instr::LoadLocal(arg),
                     ("load_lit", Some(arg), None) => Instr::LoadLit(arg),
@@ -307,7 +308,7 @@ impl Parser {
                     ("pop", None, None) => Instr::Pop,
                     ("dup", None, None) => Instr::Dup,
 
-                    // TODO
+                    // TODO: fix
                     ("load_func", None, Some(hash)) => {
                         Instr::LoadFunc(hash_from_str(hash).map_err(ParseError::Error)?)
                     }
@@ -319,15 +320,18 @@ impl Parser {
                         Instr::LoadDyn(func_name.to_string())
                     }
 
+                    // Jump instructions
                     (op, None, Some(arg)) if op.starts_with("jmp") => {
                         Self::get_jump_instr(op, &label_names, arg)?
                     }
 
+                    // Calling and returning
                     ("call", None, None) => Instr::Call,
                     ("call_self", None, None) => Instr::CallSelf,
                     ("ret", None, None) => Instr::Return,
                     ("ret_val", None, None) => Instr::ReturnVal,
 
+                    // ALU Operations
                     ("add", None, None) => Instr::BinOp(BinOp::Add),
                     ("mul", None, None) => Instr::BinOp(BinOp::Mul),
                     ("div", None, None) => Instr::BinOp(BinOp::Div),
@@ -338,10 +342,26 @@ impl Parser {
                     ("and", None, None) => Instr::BinOp(BinOp::And),
                     ("or", None, None) => Instr::BinOp(BinOp::Or),
                     ("eq", None, None) => Instr::BinOp(BinOp::Eq),
-
+                    // Unary
                     ("not", None, None) => Instr::UnaryOp(UnaryOp::Not),
                     ("neg", None, None) => Instr::UnaryOp(UnaryOp::Neg),
 
+                    // Containers
+                    ("cont_make", Some(n), None) => Instr::ContMakeS(n),
+                    ("cont_make", None, None) => Instr::ContMake,
+                    ("cont_ins", Some(i), None) => Instr::ContInsertS(i),
+                    ("cont_ins", None, None) => Instr::ContInsert,
+                    ("cont_get", Some(i), None) => Instr::ContGetS(i),
+                    ("cont_get", None, None) => Instr::ContGet,
+                    ("cont_set", Some(i), None) => Instr::ContSetS(i),
+                    ("cont_set", None, None) => Instr::ContSet,
+
+                    ("car", None, None) => Instr::ContHead,
+                    ("cdr", None, None) => Instr::ContTail,
+                    ("cont_ext", None, None) => Instr::ContExt,
+                    ("cont_len", None, None) => Instr::ContLen,
+
+                    // Misc
                     ("nop", None, None) => Instr::Nop,
                     ("dbg", None, None) => Instr::Dbg,
                     _ => return Err(ParseError::UnknownInstr(line.to_string())),
@@ -496,6 +516,7 @@ mod tests {
         dbg_f("./examples/comments.asm");
         dbg_f("./examples/primes.asm");
         dbg_f("./examples/main.asm");
+        dbg_f("./examples/cont_parse.asm");
     }
 
     #[test]

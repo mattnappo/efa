@@ -65,8 +65,8 @@ pub enum Instr {
      * The S suffix (static) is to specify the index statically.
      * Instruction variants without the S get the index from the stack
      */
-    MakeContS(usize),
-    MakeCont,
+    ContMakeS(usize),
+    ContMake,
 
     ContInsertS(usize),
     ContInsert,
@@ -176,8 +176,8 @@ impl fmt::Display for Instr {
                 Instr::BinOp(op) => format!("{op}"),
                 Instr::UnaryOp(op) => format!("{op}"),
 
-                Instr::MakeContS(n) => format!("make_cont {n}"),
-                Instr::MakeCont => "make_cont".to_string(),
+                Instr::ContMakeS(n) => format!("cont_make {n}"),
+                Instr::ContMake => "cont_make".to_string(),
 
                 Instr::ContInsertS(i) => format!("cont_ins {i}"),
                 Instr::ContInsert => "cont_ins".to_string(),

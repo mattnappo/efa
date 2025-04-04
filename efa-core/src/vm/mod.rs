@@ -453,6 +453,7 @@ impl Vm {
                     println!("{tos:?} ");
                 }
                 Instr::Nop => {}
+                _ => unimplemented!(),
             }
 
             // Update program counter for this frame
