@@ -494,6 +494,8 @@ mod tests {
         dbg_f("./examples/double.asm");
         dbg_f("./examples/call.asm");
         dbg_f("./examples/comments.asm");
+        dbg_f("./examples/primes.asm");
+        dbg_f("./examples/main.asm");
     }
 
     #[test]

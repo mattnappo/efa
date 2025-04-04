@@ -161,31 +161,6 @@ impl Vm {
         self.exec(false)
     }
 
-    /// Run a function given its name, returning the exit code
-    /// Mainly used for debugging
-    /// TODO: this does not yet handle arguments. Would want this to be called
-    /// by a future REPL.
-    pub fn run_function_by_name(&mut self, name: &str) -> Result<i32> {
-        let (_, code_obj) = self.db.get_code_object_by_name(name)?;
-
-        let main = StackFrame {
-            code_obj,
-            stack: Vec::new(),
-            locals: HashMap::new(),
-            instruction: 0,
-        };
-        self.call_stack.push(main);
-        self.exec(false)
-    }
-
-    /// Run the given frame and return the final state of the frame.
-    /// Mainly used for debugging.
-    fn run_frame(&mut self, frame: StackFrame) -> Result<StackFrame> {
-        self.call_stack.push(frame);
-        self.exec(true)?;
-        Ok(self.call_stack.last().unwrap().clone())
-    }
-
     /// With debug=true, the final frame will stay on the call stack.
     fn exec(&mut self, debug: bool) -> Result<i32> {
         let mut status_code = 0;
@@ -553,9 +528,30 @@ impl Add for Value {
 
     fn add(self, other: Self) -> Self {
         match (self, other) {
+            // Signed integers
+            (Value::I8(x), Value::I8(y)) => Value::I8(x + y),
+            (Value::I16(x), Value::I16(y)) => Value::I16(x + y),
             (Value::I32(x), Value::I32(y)) => Value::I32(x + y),
+            (Value::I64(x), Value::I64(y)) => Value::I64(x + y),
+            (Value::I128(x), Value::I128(y)) => Value::I128(x + y),
+            (Value::Isize(x), Value::Isize(y)) => Value::Isize(x + y),
+
+            // Unsigned integers
+            (Value::U8(x), Value::U8(y)) => Value::U8(x + y),
+            (Value::U16(x), Value::U16(y)) => Value::U16(x + y),
+            (Value::U32(x), Value::U32(y)) => Value::U32(x + y),
+            (Value::U64(x), Value::U64(y)) => Value::U64(x + y),
+            (Value::U128(x), Value::U128(y)) => Value::U128(x + y),
+            (Value::Usize(x), Value::Usize(y)) => Value::Usize(x + y),
+
+            // Floats
+            (Value::F32(x), Value::F32(y)) => Value::F32(x + y),
+            (Value::F64(x), Value::F64(y)) => Value::F64(x + y),
+
+            // Strings
             (Value::String(x), Value::String(y)) => Value::String(x + &y),
-            _ => panic!("cannot add values of different type"),
+
+            _ => panic!("cannot add values of different types"),
         }
     }
 }
@@ -565,8 +561,27 @@ impl Sub for Value {
 
     fn sub(self, other: Self) -> Self {
         match (self, other) {
+            // Signed integers
+            (Value::I8(x), Value::I8(y)) => Value::I8(x - y),
+            (Value::I16(x), Value::I16(y)) => Value::I16(x - y),
             (Value::I32(x), Value::I32(y)) => Value::I32(x - y),
-            _ => panic!("failed to perform sub"),
+            (Value::I64(x), Value::I64(y)) => Value::I64(x - y),
+            (Value::I128(x), Value::I128(y)) => Value::I128(x - y),
+            (Value::Isize(x), Value::Isize(y)) => Value::Isize(x - y),
+
+            // Unsigned integers
+            (Value::U8(x), Value::U8(y)) => Value::U8(x - y),
+            (Value::U16(x), Value::U16(y)) => Value::U16(x - y),
+            (Value::U32(x), Value::U32(y)) => Value::U32(x - y),
+            (Value::U64(x), Value::U64(y)) => Value::U64(x - y),
+            (Value::U128(x), Value::U128(y)) => Value::U128(x - y),
+            (Value::Usize(x), Value::Usize(y)) => Value::Usize(x - y),
+
+            // Floats
+            (Value::F32(x), Value::F32(y)) => Value::F32(x - y),
+            (Value::F64(x), Value::F64(y)) => Value::F64(x - y),
+
+            _ => panic!("cannot subtract values of different types"),
         }
     }
 }
@@ -576,11 +591,27 @@ impl Mul for Value {
 
     fn mul(self, other: Self) -> Self {
         match (self, other) {
+            // Signed integers
+            (Value::I8(x), Value::I8(y)) => Value::I8(x * y),
+            (Value::I16(x), Value::I16(y)) => Value::I16(x * y),
             (Value::I32(x), Value::I32(y)) => Value::I32(x * y),
-            (Value::I32(x), Value::String(s)) | (Value::String(s), Value::I32(x)) => {
-                Value::String(s.repeat(x as usize))
-            }
-            _ => panic!("failed to perform mul"),
+            (Value::I64(x), Value::I64(y)) => Value::I64(x * y),
+            (Value::I128(x), Value::I128(y)) => Value::I128(x * y),
+            (Value::Isize(x), Value::Isize(y)) => Value::Isize(x * y),
+
+            // Unsigned integers
+            (Value::U8(x), Value::U8(y)) => Value::U8(x * y),
+            (Value::U16(x), Value::U16(y)) => Value::U16(x * y),
+            (Value::U32(x), Value::U32(y)) => Value::U32(x * y),
+            (Value::U64(x), Value::U64(y)) => Value::U64(x * y),
+            (Value::U128(x), Value::U128(y)) => Value::U128(x * y),
+            (Value::Usize(x), Value::Usize(y)) => Value::Usize(x * y),
+
+            // Floats
+            (Value::F32(x), Value::F32(y)) => Value::F32(x * y),
+            (Value::F64(x), Value::F64(y)) => Value::F64(x * y),
+
+            _ => panic!("cannot multiply values of different types"),
         }
     }
 }
@@ -590,8 +621,27 @@ impl Div for Value {
 
     fn div(self, other: Self) -> Self {
         match (self, other) {
+            // Signed integers
+            (Value::I8(x), Value::I8(y)) => Value::I8(x / y),
+            (Value::I16(x), Value::I16(y)) => Value::I16(x / y),
             (Value::I32(x), Value::I32(y)) => Value::I32(x / y),
-            _ => panic!("failed to perform div"),
+            (Value::I64(x), Value::I64(y)) => Value::I64(x / y),
+            (Value::I128(x), Value::I128(y)) => Value::I128(x / y),
+            (Value::Isize(x), Value::Isize(y)) => Value::Isize(x / y),
+
+            // Unsigned integers
+            (Value::U8(x), Value::U8(y)) => Value::U8(x / y),
+            (Value::U16(x), Value::U16(y)) => Value::U16(x / y),
+            (Value::U32(x), Value::U32(y)) => Value::U32(x / y),
+            (Value::U64(x), Value::U64(y)) => Value::U64(x / y),
+            (Value::U128(x), Value::U128(y)) => Value::U128(x / y),
+            (Value::Usize(x), Value::Usize(y)) => Value::Usize(x / y),
+
+            // Floats
+            (Value::F32(x), Value::F32(y)) => Value::F32(x / y),
+            (Value::F64(x), Value::F64(y)) => Value::F64(x / y),
+
+            _ => panic!("cannot divide values of different types"),
         }
     }
 }
@@ -601,8 +651,27 @@ impl Rem for Value {
 
     fn rem(self, other: Self) -> Self {
         match (self, other) {
+            // Signed integers
+            (Value::I8(x), Value::I8(y)) => Value::I8(x % y),
+            (Value::I16(x), Value::I16(y)) => Value::I16(x % y),
             (Value::I32(x), Value::I32(y)) => Value::I32(x % y),
-            _ => panic!("failed to perform rem"),
+            (Value::I64(x), Value::I64(y)) => Value::I64(x % y),
+            (Value::I128(x), Value::I128(y)) => Value::I128(x % y),
+            (Value::Isize(x), Value::Isize(y)) => Value::Isize(x % y),
+
+            // Unsigned integers
+            (Value::U8(x), Value::U8(y)) => Value::U8(x % y),
+            (Value::U16(x), Value::U16(y)) => Value::U16(x % y),
+            (Value::U32(x), Value::U32(y)) => Value::U32(x % y),
+            (Value::U64(x), Value::U64(y)) => Value::U64(x % y),
+            (Value::U128(x), Value::U128(y)) => Value::U128(x % y),
+            (Value::Usize(x), Value::Usize(y)) => Value::Usize(x % y),
+
+            // Floats
+            (Value::F32(x), Value::F32(y)) => Value::F32(x % y),
+            (Value::F64(x), Value::F64(y)) => Value::F64(x % y),
+
+            _ => panic!("cannot perform modulo on values of different types"),
         }
     }
 }
@@ -612,8 +681,23 @@ impl Shl for Value {
 
     fn shl(self, other: Self) -> Self {
         match (self, other) {
+            // Signed integers
+            (Value::I8(x), Value::I8(y)) => Value::I8(x << y),
+            (Value::I16(x), Value::I16(y)) => Value::I16(x << y),
             (Value::I32(x), Value::I32(y)) => Value::I32(x << y),
-            _ => panic!("failed to perform shl"),
+            (Value::I64(x), Value::I64(y)) => Value::I64(x << y),
+            (Value::I128(x), Value::I128(y)) => Value::I128(x << y),
+            (Value::Isize(x), Value::Isize(y)) => Value::Isize(x << y),
+
+            // Unsigned integers
+            (Value::U8(x), Value::U8(y)) => Value::U8(x << y),
+            (Value::U16(x), Value::U16(y)) => Value::U16(x << y),
+            (Value::U32(x), Value::U32(y)) => Value::U32(x << y),
+            (Value::U64(x), Value::U64(y)) => Value::U64(x << y),
+            (Value::U128(x), Value::U128(y)) => Value::U128(x << y),
+            (Value::Usize(x), Value::Usize(y)) => Value::Usize(x << y),
+
+            _ => panic!("cannot perform left shift on values of different types"),
         }
     }
 }
@@ -623,8 +707,23 @@ impl Shr for Value {
 
     fn shr(self, other: Self) -> Self {
         match (self, other) {
+            // Signed integers
+            (Value::I8(x), Value::I8(y)) => Value::I8(x >> y),
+            (Value::I16(x), Value::I16(y)) => Value::I16(x >> y),
             (Value::I32(x), Value::I32(y)) => Value::I32(x >> y),
-            _ => panic!("failed to perform shr"),
+            (Value::I64(x), Value::I64(y)) => Value::I64(x >> y),
+            (Value::I128(x), Value::I128(y)) => Value::I128(x >> y),
+            (Value::Isize(x), Value::Isize(y)) => Value::Isize(x >> y),
+
+            // Unsigned integers
+            (Value::U8(x), Value::U8(y)) => Value::U8(x >> y),
+            (Value::U16(x), Value::U16(y)) => Value::U16(x >> y),
+            (Value::U32(x), Value::U32(y)) => Value::U32(x >> y),
+            (Value::U64(x), Value::U64(y)) => Value::U64(x >> y),
+            (Value::U128(x), Value::U128(y)) => Value::U128(x >> y),
+            (Value::Usize(x), Value::Usize(y)) => Value::Usize(x >> y),
+
+            _ => panic!("cannot perform right shift on values of different types"),
         }
     }
 }
@@ -634,8 +733,19 @@ impl Neg for Value {
 
     fn neg(self) -> Self {
         match self {
+            // Signed integers
+            Value::I8(x) => Value::I8(-x),
+            Value::I16(x) => Value::I16(-x),
             Value::I32(x) => Value::I32(-x),
-            _ => panic!("failed to perform neg"),
+            Value::I64(x) => Value::I64(-x),
+            Value::I128(x) => Value::I128(-x),
+            Value::Isize(x) => Value::Isize(-x),
+
+            // Floats
+            Value::F32(x) => Value::F32(-x),
+            Value::F64(x) => Value::F64(-x),
+
+            _ => panic!("cannot negate this value type"),
         }
     }
 }
@@ -646,32 +756,119 @@ impl Not for Value {
     fn not(self) -> Self {
         match self {
             Value::Bool(x) => Value::Bool(!x),
-            _ => panic!("failed to perform not"),
+
+            // Bitwise NOT for integers
+            Value::I8(x) => Value::I8(!x),
+            Value::I16(x) => Value::I16(!x),
+            Value::I32(x) => Value::I32(!x),
+            Value::I64(x) => Value::I64(!x),
+            Value::I128(x) => Value::I128(!x),
+            Value::Isize(x) => Value::Isize(!x),
+
+            Value::U8(x) => Value::U8(!x),
+            Value::U16(x) => Value::U16(!x),
+            Value::U32(x) => Value::U32(!x),
+            Value::U64(x) => Value::U64(!x),
+            Value::U128(x) => Value::U128(!x),
+            Value::Usize(x) => Value::Usize(!x),
+
+            _ => panic!("cannot perform NOT operation on this value type"),
         }
     }
 }
 
 impl Value {
+    /// Truthy and falsy values
+    fn is_truthy(&self) -> bool {
+        match self {
+            // Numeric types: 0 is falsy, non-zero is truthy
+            Value::I8(x) => *x != 0,
+            Value::I16(x) => *x != 0,
+            Value::I32(x) => *x != 0,
+            Value::I64(x) => *x != 0,
+            Value::I128(x) => *x != 0,
+            Value::Isize(x) => *x != 0,
+            Value::U8(x) => *x != 0,
+            Value::U16(x) => *x != 0,
+            Value::U32(x) => *x != 0,
+            Value::U64(x) => *x != 0,
+            Value::U128(x) => *x != 0,
+            Value::Usize(x) => *x != 0,
+
+            // Floats: 0.0 is falsy, non-zero is truthy (including NaN and infinity)
+            Value::F32(x) => *x != 0.0,
+            Value::F64(x) => *x != 0.0,
+
+            // Bool: direct value
+            Value::Bool(x) => *x,
+
+            // Char: '\0' is falsy, all others are truthy
+            Value::Char(c) => *c != '\0',
+
+            // String: empty is falsy, non-empty is truthy
+            Value::String(s) => !s.is_empty(),
+            Value::Hash(h) => !h.is_empty(), // Assuming Hash has is_empty()
+
+            // Container: empty is falsy, non-empty is truthy
+            Value::Container(v) => !v.is_empty(),
+        }
+    }
+
     pub fn and(self, other: Self) -> Self {
-        match (self, other) {
-            (Value::I32(x), Value::I32(y)) => Value::I32(((x != 0) && (y != 0)) as i32),
-            (Value::String(s), Value::I32(x)) | (Value::I32(x), Value::String(s)) => {
-                Value::I32((!s.is_empty() && (x != 0)) as i32)
-            }
-            (Value::Bool(x), Value::Bool(y)) => Value::Bool(x && y),
-            _ => panic!("failed to perform and"),
+        let left_truthy = self.is_truthy();
+        let right_truthy = other.is_truthy();
+
+        // Return the last evaluated value if both are truthy, or the falsy one
+        if left_truthy && right_truthy {
+            other
+        } else if !left_truthy {
+            self
+        } else {
+            other
         }
     }
 
     pub fn or(self, other: Self) -> Self {
-        match (self, other) {
-            (Value::I32(x), Value::I32(y)) => Value::I32(((x != 0) && (y != 0)) as i32),
-            (Value::String(s), Value::I32(x)) | (Value::I32(x), Value::String(s)) => {
-                Value::I32((!s.is_empty() && (x != 0)) as i32)
-            }
-            (Value::Bool(x), Value::Bool(y)) => Value::Bool(x || y),
-            _ => panic!("failed to perform or"),
+        let left_truthy = self.is_truthy();
+        let right_truthy = other.is_truthy();
+
+        // Return the first truthy value, or the last one if both are falsy
+        if left_truthy {
+            self
+        } else if right_truthy {
+            other
+        } else {
+            other
         }
+    }
+}
+
+/// Debugging methods
+impl Vm {
+    /// Run a function given its name, returning the exit code
+    /// Mainly used for debugging
+    /// TODO: this does not yet handle arguments. Would want this to be called
+    /// by a future REPL.
+    // Used only for debugging
+    fn run_function_by_name(&mut self, name: &str) -> Result<i32> {
+        let (_, code_obj) = self.db.get_code_object_by_name(name)?;
+
+        let main = StackFrame {
+            code_obj,
+            stack: Vec::new(),
+            locals: HashMap::new(),
+            instruction: 0,
+        };
+        self.call_stack.push(main);
+        self.exec(false)
+    }
+
+    /// Run the given frame and return the final state of the frame.
+    /// Mainly used for debugging.
+    fn run_frame(&mut self, frame: StackFrame) -> Result<StackFrame> {
+        self.call_stack.push(frame);
+        self.exec(true)?;
+        Ok(self.call_stack.last().unwrap().clone())
     }
 }
 
