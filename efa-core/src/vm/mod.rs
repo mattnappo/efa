@@ -49,12 +49,31 @@ struct StackFrame {
 }
 
 /// A value that can be on the stack.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum Value {
+    I8(i8),
+    U8(u8),
+    I16(i16),
+    U16(u16),
     I32(i32),
-    String(String),
+    U32(u32),
+    I64(i64),
+    U64(u64),
+    I128(i128),
+    U128(u128),
+    Isize(isize),
+    Usize(usize),
+
+    F32(f32),
+    F64(f64),
+
+    Char(char),
     Bool(bool),
+
     Hash(Hash),
+    String(String), // TODO: make a borrowed version?
+
+    Container(Vec<Value>),
 }
 
 impl Value {
@@ -74,15 +93,24 @@ impl Value {
 
 impl PartialOrd for Value {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Value {
-    fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
-            (Value::I32(x), Value::I32(y)) => x.cmp(y),
-            _ => panic!("cannot compare non-integer values"),
+            (Value::I8(x), Value::I8(y)) => Some(x.cmp(y)),
+            (Value::U8(x), Value::U8(y)) => Some(x.cmp(y)),
+            (Value::I16(x), Value::I16(y)) => Some(x.cmp(y)),
+            (Value::U16(x), Value::U16(y)) => Some(x.cmp(y)),
+            (Value::I32(x), Value::I32(y)) => Some(x.cmp(y)),
+            (Value::U32(x), Value::U32(y)) => Some(x.cmp(y)),
+            (Value::I64(x), Value::I64(y)) => Some(x.cmp(y)),
+            (Value::U64(x), Value::U64(y)) => Some(x.cmp(y)),
+            (Value::I128(x), Value::I128(y)) => Some(x.cmp(y)),
+            (Value::U128(x), Value::U128(y)) => Some(x.cmp(y)),
+            (Value::Isize(x), Value::Isize(y)) => Some(x.cmp(y)),
+            (Value::Usize(x), Value::Usize(y)) => Some(x.cmp(y)),
+            (Value::Char(x), Value::Char(y)) => Some(x.cmp(y)),
+            (Value::Bool(x), Value::Bool(y)) => Some(x.cmp(y)),
+            (Value::Hash(x), Value::Hash(y)) => Some(x.cmp(y)),
+            (Value::String(x), Value::String(y)) => Some(x.cmp(y)),
+            e => panic!("cannot compare {e:?}"),
         }
     }
 }
