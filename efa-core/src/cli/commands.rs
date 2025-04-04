@@ -40,12 +40,13 @@ pub fn disassemble_db(db_path: &str) -> Result<String> {
     Ok(dis)
 }
 
-pub fn roundtrip_file(file: &str) -> Result<()> {
+// TODO: support run flag
+pub fn roundtrip_file(file: &str, run: bool) -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let db_file = tmp.path().join("test.db").display().to_string();
     let dis_file = tmp.path().join("dis.asm").display().to_string();
 
-    // Run the file
+    // Run the original file
     let ret_val = run_scratch_file(file, Some(&db_file))?;
 
     // Disassemble the db and write the disassembled contents to a file
@@ -53,8 +54,8 @@ pub fn roundtrip_file(file: &str) -> Result<()> {
     let mut f = fs::File::create(&dis_file)?;
     f.write_all(dis.as_bytes())?;
 
+    // Run the dis file
     let ret_val_dis = run_scratch_file(&dis_file, None)?;
-
     assert_eq!(ret_val, ret_val_dis);
 
     Ok(())
@@ -93,7 +94,7 @@ mod integration_test {
             .collect::<Result<Vec<_>, std::io::Error>>()
             .unwrap()
             .into_iter()
-            .try_for_each(|ref f| roundtrip_file(f))
+            .try_for_each(|ref f| roundtrip_file(f, true))
             .unwrap();
     }
 }

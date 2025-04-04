@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand};
 
 use efa_core::cli::commands as cli;
 
@@ -22,7 +22,13 @@ enum Command {
     Dis { db_path: String },
 
     /// Roundtrip a bytecode assembly file
-    Rt { input_file: String },
+    Rt {
+        input_file: String,
+
+        /// Run the file
+        #[clap(long, short, action=ArgAction::SetFalse)]
+        run: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -38,8 +44,8 @@ fn main() -> Result<()> {
             cli::disassemble_db(&db_path)?;
             0
         }
-        Command::Rt { input_file } => {
-            cli::roundtrip_file(&input_file)?;
+        Command::Rt { input_file, run } => {
+            cli::roundtrip_file(&input_file, run)?;
             0
         }
     };

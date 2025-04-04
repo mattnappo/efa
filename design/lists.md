@@ -1,33 +1,35 @@
 # Lists, Tuples, Structs
 
-## Building Lists
+Lists (arrays), tuples, and structs have the exact same representation, as a `Value::Container`. See `memory-representation.md` for more details.
 
-### `make_list n`
+## Building Containers
 
-pop n elements from the stack and push a list onto the stack
-* n=0 case will build an empty list
-* infers type of the list from the type of `stack.top()`
+### `make_cont n`
+
+pop n elements from the stack and push a cont onto the stack
+* n=0 case will build an empty cont
+* infers type of the cont from the type of `stack.top()`
 * will crash if all `n` elements are not of the same type
 
-## Head/Tail/Ext
+## Head/Tail/Extend
 
-### `list_head`
+### `cont_head`
 
-get the head of a list
-  * `list_head [A; B; C; ...] --> A`
-
-
-### `list_tail`
-
-get the tail of a list
-  * `list_tail [A; B; C; D; ...] --> [B; C; D; ...]`
+get the head of a container
+  * `cont_head [A; B; C; ...] --> A`
 
 
-### `list_ext`
+### `cont_tail`
 
-extend a list with another list
-1. pop the top two stack elements B(top), then A, which must be lists
-2. push a list B + A onto the stack
+get the tail of a container
+  * `cont_tail [A; B; C; D; ...] --> [B; C; D; ...]`
+
+
+### `cont_ext`
+
+extend a cont with another cont
+1. pop the top two stack elements B(top), then A, which must be containers
+2. push a cont B + A onto the stack
 
 ```
 tos --> [ C; D ]
@@ -35,7 +37,7 @@ tos --> [ C; D ]
 ```
 will push `[A; B; C; D]`
 
-### `list_append`
+### `cont_append`
 Thinking about whether I actually want this instruction or not...
 
 ```
@@ -44,7 +46,7 @@ A = stack.pop()
 push A + [val]     # Just extension with new singleton list
 ```
 
-### `list_insert <i>`
+### `cont_insert <i>`
 
 if `i` supplied:
 ```
@@ -57,15 +59,15 @@ push B
 if `i` not supplied:
 ```
 i = stack.pop()
-list_insert i
+cont_insert i
 ```
 
-### `list_get i`
+### `cont_get i`
 
-Push `A[i]` onto the stack, where `A` is a list on tos, then pop A
+Push `A[i]` onto the stack, where `A` is a cont on tos, then pop A
 * Err if oob
 
-### `list_get`
+### `cont_get`
 
 ```
 i = stack.pop()
@@ -73,7 +75,7 @@ A = stack.pop()
 push A[i]
 ```
 
-### `list_set`
+### `cont_set`
 
 ```
 val = stack.pop()
@@ -82,8 +84,8 @@ A = stack.pop()
 A[i] = val
 ```
 
-### `list_len`
+### `cont_len`
 ```
-A = list.pop()
+A = cont.pop()
 push len(A)
 ```

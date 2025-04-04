@@ -446,16 +446,6 @@ impl Vm {
                     }
                 }
 
-                Instr::LoadArray => {}
-                Instr::StoreArray => {}
-                Instr::MakeArray => {}
-                Instr::MakeSlice => {}
-                Instr::StoreSlice => {}
-
-                Instr::LoadField => {}
-                Instr::StoreField => {}
-                Instr::MakeStruct => {}
-
                 Instr::Dbg => {
                     let tos = stack.last().ok_or_else(|| {
                         anyhow!("stack underflow: cannot 'dbg' with empty stack")

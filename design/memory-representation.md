@@ -93,6 +93,32 @@ The compiler is entirely responsible for emitting code that correctly handles ar
 No knowledge of types is necessary at runtime, which eventually can be optimized away to store everything as raw bytes (might be tricky to do this without unsafe rust, and would also probably want alignment). The compiler will typecheck everything so that emitted bytecode is type-semantically valid.
 
 
-# Enums
+# Enums / Constructors
 
-Enums will be compiled down to tagged unions.
+Enums will be compiled down to (essentially) tagged unions.
+
+The variants are given a globally monotonic integer identifier.
+
+```ocaml
+type a = A | B | C of int * string
+type b = A | B | C
+```
+
+The tags are
+```
+a::A --> 0
+a::B --> 1
+a::C --> 2
+b::A --> 3
+b::B --> 4
+b::C --> 5
+```
+
+`a::C`, which has a value, is represented as a container `c` with `c[0] = tag` and the rest of the `c[i]` as the values
+
+```rust
+Value::Container(Value::U32(), Value::I32(), Value::String())
+```
+
+The rest are represented just as integers, i.e. `Value::U32(tag)`
+
