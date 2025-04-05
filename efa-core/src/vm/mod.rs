@@ -89,6 +89,24 @@ impl Value {
         let trunc = hash_from_vec(hash)?;
         Ok(Value::Hash(trunc))
     }
+
+    pub fn as_int(&self) -> Option<i64> {
+        match self {
+            Value::I8(i) => Some(*i as i64),
+            Value::U8(i) => Some(*i as i64),
+            Value::I16(i) => Some(*i as i64),
+            Value::U16(i) => Some(*i as i64),
+            Value::I32(i) => Some(*i as i64),
+            Value::U32(i) => Some(*i as i64),
+            Value::I64(i) => Some(*i as i64),
+            Value::U64(i) => Some(*i as i64),
+            Value::I128(i) => Some(*i as i64),
+            Value::U128(i) => Some(*i as i64),
+            Value::Isize(i) => Some(*i as i64),
+            Value::Usize(i) => Some(*i as i64),
+            _ => None,
+        }
+    }
 }
 
 impl PartialOrd for Value {
@@ -446,6 +464,51 @@ impl Vm {
                     }
                 }
 
+                /*
+                 * Container instructions
+                 */
+                Instr::ContMakeS(n) => {
+                    if stack.len() < n {
+                        bail!("cannot build container: stack underflow");
+                    }
+
+                    let start = stack.len().saturating_sub(n);
+
+                    let container: Vec<Value> = stack.drain(start..).collect();
+                    stack.push(Value::Container(container));
+                }
+                Instr::ContMake => {
+                    let n = stack.pop().ok_or_else(|| {
+                        anyhow!("cannot build dynamic container: no length on stack")
+                    })?;
+
+                    if let Some(n) = n.as_int().map(|x| x as usize) {
+                        if stack.len() < n {
+                            bail!("cannot build container: not enough elements on stack");
+                        }
+
+                        let start = stack.len().saturating_sub(n);
+                        let container: Vec<Value> = stack.drain(start..).collect();
+                        stack.push(Value::Container(container));
+                    } else {
+                        bail!("cannot build dynamic container: invalid length on stack")
+                    }
+                }
+
+                Instr::ContInsertS(i) => {}
+                Instr::ContInsert => {}
+
+                Instr::ContGetS(i) => {}
+                Instr::ContGet => {}
+
+                Instr::ContSetS(i) => {}
+                Instr::ContSet => {}
+
+                Instr::ContHead => {}
+                Instr::ContTail => {}
+                Instr::ContExt => {}
+                Instr::ContLen => {}
+
                 Instr::Dbg => {
                     let tos = stack.last().ok_or_else(|| {
                         anyhow!("stack underflow: cannot 'dbg' with empty stack")
@@ -453,7 +516,8 @@ impl Vm {
                     println!("{tos:?} ");
                 }
                 Instr::Nop => {}
-                _ => unimplemented!(),
+
+                e => unimplemented!("unimplemented instruction: {e}"),
             }
 
             // Update program counter for this frame
@@ -1286,5 +1350,59 @@ pub mod tests {
         assert_eq!(f(10), 55);
         assert_eq!(f(15), 610);
         assert_eq!(f(25), 75025);
+    }
+
+    #[test]
+    fn test_cont_build() {
+        let mut vm = Vm::new().unwrap();
+
+        // Static
+        vm.run_frame(init_frame(bytecode![
+            Instr::LoadLit(1),
+            Instr::LoadLit(1),
+            Instr::LoadLit(1),
+            Instr::ContMakeS(3)
+        ]))
+        .unwrap();
+
+        assert_eq!(
+            vm.call_stack.pop().unwrap().stack.pop().unwrap(),
+            Value::Container(vec![
+                Value::string("hello"),
+                Value::string("hello"),
+                Value::string("hello"),
+            ])
+        );
+
+        // Dynamic
+        vm.run_frame(init_frame(bytecode![
+            Instr::LoadLit(1),
+            Instr::LoadLit(1),
+            Instr::LoadLit(1),
+            Instr::LoadLit(1),
+            Instr::LoadLit(1),
+            Instr::LoadLit(0),
+            Instr::ContMake
+        ]))
+        .unwrap();
+
+        assert_eq!(
+            vm.call_stack.pop().unwrap().stack.pop().unwrap(),
+            Value::Container(vec![
+                Value::string("hello"),
+                Value::string("hello"),
+                Value::string("hello"),
+                Value::string("hello"),
+                Value::string("hello"),
+            ])
+        );
+
+        // Too few elements on stack
+        let t = vm.run_frame(init_frame(bytecode![
+            Instr::LoadLit(1),
+            Instr::LoadLit(0),
+            Instr::ContMake
+        ]));
+        assert!(t.is_err());
     }
 }
