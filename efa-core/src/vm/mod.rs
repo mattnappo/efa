@@ -495,8 +495,7 @@ impl Vm {
                     }
                 }
 
-                Instr::ContInsertS(i) => {}
-                Instr::ContInsert => {}
+                Instr::ContInsertS(_) | Instr::ContInsert => unimplemented!(),
 
                 Instr::ContGetS(i) => {
                     let container = stack
@@ -509,6 +508,8 @@ impl Vm {
                         // TODO(high): This is a problematic clone
                         // Need to add some additional indirection (references, heap/box, etc...)
                         stack.push(val.clone());
+                    } else {
+                        bail!("cannot get: no container on stack");
                     }
                 }
                 Instr::ContGet => {
@@ -528,11 +529,47 @@ impl Vm {
                         // TODO(high): This is a problematic clone
                         // Need to add some additional indirection (references, heap/box, etc...)
                         stack.push(val.clone());
+                    } else {
+                        bail!("cannot get: no container on stack");
                     }
                 }
 
-                Instr::ContSetS(i) => {}
-                Instr::ContSet => {}
+                Instr::ContSetS(i) => {
+                    let val = stack.pop().ok_or_else(|| anyhow!("no value given"))?;
+                    let container = stack
+                        .pop()
+                        .ok_or_else(|| anyhow!("no container on stack"))?;
+
+                    if let Value::Container(cont) = container {
+                        // TODO(high): Problematic clone
+                        let mut cont = cont.clone();
+                        cont[i] = val;
+                        stack.push(Value::Container(cont));
+                    } else {
+                        bail!("cannot get: no container on stack");
+                    }
+                }
+
+                Instr::ContSet => {
+                    let index = stack
+                        .pop()
+                        .map(|i| i.as_int())
+                        .flatten()
+                        .ok_or_else(|| anyhow!("no index on stack"))?;
+                    let val = stack.pop().ok_or_else(|| anyhow!("no value given"))?;
+                    let container = stack
+                        .pop()
+                        .ok_or_else(|| anyhow!("no container on stack"))?;
+
+                    if let Value::Container(cont) = container {
+                        // TODO(high): Problematic clone
+                        let mut cont = cont.clone();
+                        cont[index as usize] = val;
+                        stack.push(Value::Container(cont));
+                    } else {
+                        bail!("cannot get: no container on stack");
+                    }
+                }
 
                 Instr::ContHead => {}
                 Instr::ContTail => {}
@@ -1505,5 +1542,48 @@ pub mod tests {
         let mut stack = vm.call_stack.pop().unwrap().stack;
         assert_eq!(stack.pop().unwrap(), Value::string("hello"));
         assert_eq!(stack.pop().unwrap(), Value::I32(5));
+    }
+
+    #[test]
+    fn test_cont_set() {
+        let mut vm = Vm::new().unwrap();
+
+        // Static
+        vm.run_frame(init_frame(bytecode![
+            // Build
+            Instr::LoadLit(0),
+            Instr::LoadLit(1),
+            Instr::ContMakeS(2),
+            // Set
+            Instr::LoadLit(1),
+            Instr::ContSetS(0), // Set to "hello"
+            // Check
+            Instr::ContGetS(0)
+        ]))
+        .unwrap();
+
+        let tos = vm.call_stack.pop().unwrap().stack.pop().unwrap();
+        assert_eq!(tos, Value::string("hello"));
+
+        // Dynamic
+        vm.run_frame(init_frame_with_pool(
+            bytecode![
+                // Build
+                Instr::LoadLit(0),
+                Instr::LoadLit(1),
+                Instr::ContMakeS(2),
+                // Set
+                Instr::LoadLit(1), // Load value "hello"
+                Instr::LoadLit(2), // load index = 1
+                Instr::ContSet,    // Set to "hello"
+                // Check
+                Instr::ContGetS(1)
+            ],
+            vec![Value::I32(5), Value::string("hello"), Value::I32(1)],
+        ))
+        .unwrap();
+
+        let tos = vm.call_stack.pop().unwrap().stack.pop().unwrap();
+        assert_eq!(tos, Value::string("hello"));
     }
 }
