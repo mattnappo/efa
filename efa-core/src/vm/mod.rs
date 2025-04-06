@@ -498,8 +498,38 @@ impl Vm {
                 Instr::ContInsertS(i) => {}
                 Instr::ContInsert => {}
 
-                Instr::ContGetS(i) => {}
-                Instr::ContGet => {}
+                Instr::ContGetS(i) => {
+                    let container = stack
+                        .pop()
+                        .ok_or_else(|| anyhow!("no container on stack"))?;
+                    if let Value::Container(cont) = container {
+                        let val = cont.get(i).ok_or_else(|| {
+                            anyhow!("index {i} out of bounds for container")
+                        })?;
+                        // TODO(high): This is a problematic clone
+                        // Need to add some additional indirection (references, heap/box, etc...)
+                        stack.push(val.clone());
+                    }
+                }
+                Instr::ContGet => {
+                    let index = stack
+                        .pop()
+                        .map(|i| i.as_int())
+                        .flatten()
+                        .ok_or_else(|| anyhow!("no index on stack"))?;
+
+                    let container = stack
+                        .pop()
+                        .ok_or_else(|| anyhow!("no container on stack"))?;
+                    if let Value::Container(cont) = container {
+                        let val = cont.get(index as usize).ok_or_else(|| {
+                            anyhow!("index {index} out of bounds for container")
+                        })?;
+                        // TODO(high): This is a problematic clone
+                        // Need to add some additional indirection (references, heap/box, etc...)
+                        stack.push(val.clone());
+                    }
+                }
 
                 Instr::ContSetS(i) => {}
                 Instr::ContSet => {}
@@ -945,6 +975,20 @@ pub mod tests {
 
     fn init_frame(code: Bytecode) -> StackFrame {
         let code_obj = init_code_obj(code);
+        StackFrame {
+            code_obj,
+            stack: Vec::new(),
+            locals: HashMap::from([
+                ("x".into(), Value::int(10)),
+                ("y".into(), Value::string("ok")),
+                ("z".into(), Value::int(64)),
+            ]),
+            instruction: 0,
+        }
+    }
+
+    fn init_frame_with_pool(code: Bytecode, litpool: Vec<Value>) -> StackFrame {
+        let code_obj = init_code_obj_with_pool(code, litpool);
         StackFrame {
             code_obj,
             stack: Vec::new(),
@@ -1404,5 +1448,62 @@ pub mod tests {
             Instr::ContMake
         ]));
         assert!(t.is_err());
+    }
+
+    #[test]
+    fn test_cont_get() {
+        let mut vm = Vm::new().unwrap();
+
+        // Static
+        vm.run_frame(init_frame(bytecode![
+            // Build
+            Instr::LoadLit(0),
+            Instr::LoadLit(0),
+            Instr::LoadLit(1),
+            Instr::ContMakeS(3),
+            Instr::StoreLocal(0),
+            // Get
+            Instr::LoadLocal(0),
+            Instr::ContGetS(0),
+            Instr::LoadLocal(0),
+            Instr::ContGetS(1),
+            Instr::LoadLocal(0),
+            Instr::ContGetS(2)
+        ]))
+        .unwrap();
+
+        let mut stack = vm.call_stack.pop().unwrap().stack;
+        assert_eq!(stack.pop().unwrap(), Value::string("hello"));
+        assert_eq!(stack.pop().unwrap(), Value::I32(5));
+        assert_eq!(stack.pop().unwrap(), Value::I32(5));
+
+        // Dynamic
+        vm.run_frame(init_frame_with_pool(
+            bytecode![
+                // Build
+                Instr::LoadLit(0),
+                Instr::LoadLit(1),
+                Instr::ContMakeS(2),
+                Instr::StoreLocal(0),
+                // Get
+                Instr::LoadLocal(0),
+                Instr::LoadLit(2),
+                Instr::ContGet,
+                Instr::LoadLocal(0),
+                Instr::LoadLit(3),
+                Instr::ContGet
+            ],
+            vec![
+                Value::I32(5),
+                Value::string("hello"),
+                Value::I32(0),
+                Value::I32(1),
+            ],
+        ))
+        .unwrap();
+
+        let mut stack = vm.call_stack.pop().unwrap().stack;
+        assert_eq!(stack.pop().unwrap(), Value::string("hello"));
+        assert_eq!(stack.pop().unwrap(), Value::I32(5));
     }
 }
