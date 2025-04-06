@@ -495,8 +495,7 @@ impl Vm {
                     }
                 }
 
-                Instr::ContInsertS(_) | Instr::ContInsert => unimplemented!(),
-
+                // Instr::ContInsertS(_) | Instr::ContInsert => unimplemented!(),
                 Instr::ContGetS(i) => {
                     let container = stack
                         .pop()
@@ -546,7 +545,7 @@ impl Vm {
                         cont[i] = val;
                         stack.push(Value::Container(cont));
                     } else {
-                        bail!("cannot get: no container on stack");
+                        bail!("cannot set: no container on stack");
                     }
                 }
 
@@ -567,14 +566,71 @@ impl Vm {
                         cont[index as usize] = val;
                         stack.push(Value::Container(cont));
                     } else {
-                        bail!("cannot get: no container on stack");
+                        bail!("cannot set: no container on stack");
                     }
                 }
 
-                Instr::ContHead => {}
-                Instr::ContTail => {}
-                Instr::ContExt => {}
-                Instr::ContLen => {}
+                Instr::ContHead => {
+                    let container = stack
+                        .pop()
+                        .ok_or_else(|| anyhow!("no container on stack"))?;
+
+                    if let Value::Container(cont) = container {
+                        // TODO(high): Problematic clone
+                        stack.push(
+                            cont.get(0)
+                                .ok_or_else(|| anyhow!("cannot car empty container"))?
+                                .clone(),
+                        );
+                    } else {
+                        bail!("cannot car container: no container on stack");
+                    }
+                }
+
+                Instr::ContTail => {
+                    let container = stack
+                        .pop()
+                        .ok_or_else(|| anyhow!("no container on stack"))?;
+
+                    if let Value::Container(mut cont) = container {
+                        cont.remove(0);
+                        // TODO(high): Problematic clone
+                        stack.push(Value::Container(cont.clone()));
+                    } else {
+                        bail!("cannot cdr container: no container on stack");
+                    }
+                }
+
+                Instr::ContExt => {
+                    let c1 = stack
+                        .pop()
+                        .ok_or_else(|| anyhow!("no container on stack"))?;
+
+                    let c2 = stack
+                        .pop()
+                        .ok_or_else(|| anyhow!("no container on stack"))?;
+
+                    match (c1, c2) {
+                        (Value::Container(mut c1), Value::Container(mut c2)) => {
+                            c2.append(&mut c1);
+                            // TODO(high): problematic clone
+                            stack.push(Value::Container(c2.clone()));
+                        }
+                        _ => bail!("cannot extend non-containers"),
+                    }
+                }
+
+                Instr::ContLen => {
+                    let container = stack
+                        .pop()
+                        .ok_or_else(|| anyhow!("no container on stack"))?;
+
+                    if let Value::Container(cont) = container {
+                        stack.push(Value::Usize(cont.len()));
+                    } else {
+                        bail!("cannot get length: no container on stack");
+                    }
+                }
 
                 Instr::Dbg => {
                     let tos = stack.last().ok_or_else(|| {
@@ -1585,5 +1641,96 @@ pub mod tests {
 
         let tos = vm.call_stack.pop().unwrap().stack.pop().unwrap();
         assert_eq!(tos, Value::string("hello"));
+    }
+
+    #[test]
+    fn test_cont_head() {
+        let mut vm = Vm::new().unwrap();
+
+        vm.run_frame(init_frame(bytecode![
+            // Build
+            Instr::LoadLit(0),
+            Instr::LoadLit(1),
+            Instr::ContMakeS(2),
+            // Get head
+            Instr::ContHead
+        ]))
+        .unwrap();
+
+        let tos = vm.call_stack.pop().unwrap().stack.pop().unwrap();
+        assert_eq!(tos, Value::I32(5));
+    }
+
+    #[test]
+    fn test_cont_tail() {
+        let mut vm = Vm::new().unwrap();
+
+        vm.run_frame(init_frame(bytecode![
+            // Build
+            Instr::LoadLit(0),
+            Instr::LoadLit(0),
+            Instr::LoadLit(1),
+            Instr::ContMakeS(3),
+            // Get Tail
+            Instr::ContTail
+        ]))
+        .unwrap();
+
+        let tos = vm.call_stack.pop().unwrap().stack.pop().unwrap();
+        assert_eq!(
+            tos,
+            Value::Container(vec![Value::I32(5), Value::string("hello")])
+        );
+    }
+
+    #[test]
+    fn test_cont_extend() {
+        let mut vm = Vm::new().unwrap();
+
+        vm.run_frame(init_frame(bytecode![
+            // Build 1
+            Instr::LoadLit(0),
+            Instr::LoadLit(0),
+            Instr::LoadLit(1),
+            Instr::ContMakeS(3),
+            // Build 2
+            Instr::LoadLit(0),
+            Instr::LoadLit(1),
+            Instr::ContMakeS(2),
+            // Extend
+            Instr::ContExt
+        ]))
+        .unwrap();
+
+        let tos = vm.call_stack.pop().unwrap().stack.pop().unwrap();
+        assert_eq!(
+            tos,
+            Value::Container(vec![
+                Value::I32(5),
+                Value::I32(5),
+                Value::string("hello"),
+                Value::I32(5),
+                Value::string("hello"),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_cont_length() {
+        let mut vm = Vm::new().unwrap();
+
+        vm.run_frame(init_frame(bytecode![
+            // Build
+            Instr::LoadLit(0),
+            Instr::LoadLit(0),
+            Instr::LoadLit(1),
+            Instr::ContMakeS(3),
+            // Check len
+            Instr::ContLen
+        ]))
+        .unwrap();
+
+        let tos = vm.call_stack.pop().unwrap().stack.pop().unwrap();
+        assert_eq!(tos, Value::Usize(3));
     }
 }
