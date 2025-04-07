@@ -76,7 +76,7 @@ top:
     load_loc 0
     load_dyn $isqrt_fast
     call
-    dbg
+    #dbg
     store_loc 2 # store into last_soln
     pop
 

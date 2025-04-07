@@ -226,8 +226,11 @@ impl Vm {
                     stack.push(val.clone());
                 }
                 Instr::LoadLit(i) => {
-                    // TODO: throw err with out of bounds
-                    stack.push(frame.code_obj.litpool[i].clone());
+                    let lit =
+                        frame.code_obj.litpool.get(i).ok_or_else(|| {
+                            anyhow!("literal with index {i} out of bounds")
+                        })?;
+                    stack.push(lit.clone());
                 }
                 Instr::StoreLocal(i) => {
                     let k = i + frame.code_obj.argcount;
