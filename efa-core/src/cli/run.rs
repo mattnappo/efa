@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand};
 
 use efa_core::cli::commands as cli;
 
@@ -10,13 +10,24 @@ struct Args {
 }
 
 #[derive(Debug, Subcommand)]
+// #[command(version, about, long_about = None)]
 enum Command {
+    /// Run a bytecode assembly file
     Run {
         input_file: String,
         db_path: Option<String>,
     },
-    Dis {
-        db_path: String,
+
+    /// Disassemble a code database
+    Dis { db_path: String },
+
+    /// Roundtrip a bytecode assembly file
+    Rt {
+        input_file: String,
+
+        /// Run the file
+        #[clap(long, short, action=ArgAction::SetFalse)]
+        run: bool,
     },
 }
 
@@ -31,6 +42,10 @@ fn main() -> Result<()> {
             .expect(&format!("ERROR {}", input_file)),
         Command::Dis { db_path } => {
             cli::disassemble_db(&db_path)?;
+            0
+        }
+        Command::Rt { input_file, run } => {
+            cli::roundtrip_file(&input_file, run)?;
             0
         }
     };

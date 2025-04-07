@@ -1,3 +1,6 @@
+use std::fs;
+use std::io::prelude::*;
+
 use anyhow::Result;
 
 use crate::asm::parser;
@@ -37,13 +40,32 @@ pub fn disassemble_db(db_path: &str) -> Result<String> {
     Ok(dis)
 }
 
+// TODO: support run flag
+pub fn roundtrip_file(file: &str, run: bool) -> Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let db_file = tmp.path().join("test.db").display().to_string();
+    let dis_file = tmp.path().join("dis.asm").display().to_string();
+
+    // Run the original file
+    let ret_val = run_scratch_file(file, Some(&db_file))?;
+
+    // Disassemble the db and write the disassembled contents to a file
+    let dis = disassemble_db(&db_file)?;
+    let mut f = fs::File::create(&dis_file)?;
+    f.write_all(dis.as_bytes())?;
+
+    // Run the dis file
+    let ret_val_dis = run_scratch_file(&dis_file, None)?;
+    assert_eq!(ret_val, ret_val_dis);
+
+    Ok(())
+}
+
 #[cfg(test)]
-mod test {
+mod integration_test {
     //! These serve as integration tests, essentially
 
     use super::*;
-    use std::fs;
-    use std::io::prelude::*;
 
     macro_rules! run {
         ($file:expr) => {
@@ -61,24 +83,9 @@ mod test {
         assert_eq!(run!("examples/sum_squares.asm"), 55);
         assert_eq!(run!("examples/primes.asm"), 97);
         assert_eq!(run!("examples/isqrt.asm"), 225);
-    }
-
-    fn roundtrip_file(file: &str) {
-        let tmp = tempfile::tempdir().unwrap();
-        let db_file = tmp.path().join("test.db").display().to_string();
-        let dis_file = tmp.path().join("dis.asm").display().to_string();
-
-        // Run the file
-        let ret_val = run_scratch_file(file, Some(&db_file)).unwrap();
-
-        // Disassemble the db and write the disassembled contents to a file
-        let dis = disassemble_db(&db_file).unwrap();
-        let mut f = fs::File::create(&dis_file).unwrap();
-        f.write_all(dis.as_bytes()).unwrap();
-
-        let ret_val_dis = run_scratch_file(&dis_file, None).unwrap();
-
-        assert_eq!(ret_val, ret_val_dis);
+        assert_eq!(run!("examples/main.asm"), 1);
+        assert_eq!(run!("examples/array_2d.asm"), 6);
+        assert_eq!(run!("examples/array_map.asm"), 90);
     }
 
     #[test]
@@ -89,6 +96,7 @@ mod test {
             .collect::<Result<Vec<_>, std::io::Error>>()
             .unwrap()
             .into_iter()
-            .for_each(|ref f| roundtrip_file(f));
+            .try_for_each(|ref f| roundtrip_file(f, true))
+            .unwrap();
     }
 }

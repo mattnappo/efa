@@ -22,10 +22,27 @@ pub fn disassemble_function(
             dis,
             "    .lit {}",
             match lit {
-                Value::I32(i) => format!("{i}"),
                 Value::String(s) => format!("\"{s}\""),
-                Value::Bool(b) => format!("{b}"),
                 Value::Hash(h) => format!("0x{}", hex::encode(h)),
+                Value::I8(i) => format!("{i}"),
+                Value::U8(u) => format!("{u}"),
+                Value::I16(i) => format!("{i}"),
+                Value::U16(u) => format!("{u}"),
+                Value::I32(i) => format!("{i}"),
+                Value::U32(u) => format!("{u}"),
+                Value::I64(i) => format!("{i}"),
+                Value::U64(u) => format!("{u}"),
+                Value::I128(i) => format!("{i}"),
+                Value::U128(u) => format!("{u}"),
+                Value::Isize(i) => format!("{i}"),
+                Value::Usize(u) => format!("{u}"),
+
+                Value::F32(f) => format!("{f}"),
+                Value::F64(f) => format!("{f}"),
+
+                Value::Char(c) => format!("{c}"),
+                Value::Bool(b) => format!("{b}"),
+                Value::Container(_) => format!("<cont>"), // TODO
             }
         )
     })?;

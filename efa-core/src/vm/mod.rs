@@ -49,12 +49,31 @@ struct StackFrame {
 }
 
 /// A value that can be on the stack.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum Value {
+    I8(i8),
+    U8(u8),
+    I16(i16),
+    U16(u16),
     I32(i32),
-    String(String),
+    U32(u32),
+    I64(i64),
+    U64(u64),
+    I128(i128),
+    U128(u128),
+    Isize(isize),
+    Usize(usize),
+
+    F32(f32),
+    F64(f64),
+
+    Char(char),
     Bool(bool),
+
     Hash(Hash),
+    String(String), // TODO: make a borrowed version?
+
+    Container(Vec<Value>),
 }
 
 impl Value {
@@ -70,19 +89,22 @@ impl Value {
         let trunc = hash_from_vec(hash)?;
         Ok(Value::Hash(trunc))
     }
-}
 
-impl PartialOrd for Value {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Value {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            (Value::I32(x), Value::I32(y)) => x.cmp(y),
-            _ => panic!("cannot compare non-integer values"),
+    pub fn as_int(&self) -> Option<i64> {
+        match self {
+            Value::I8(i) => Some(*i as i64),
+            Value::U8(i) => Some(*i as i64),
+            Value::I16(i) => Some(*i as i64),
+            Value::U16(i) => Some(*i as i64),
+            Value::I32(i) => Some(*i as i64),
+            Value::U32(i) => Some(*i as i64),
+            Value::I64(i) => Some(*i as i64),
+            Value::U64(i) => Some(*i as i64),
+            Value::I128(i) => Some(*i as i64),
+            Value::U128(i) => Some(*i as i64),
+            Value::Isize(i) => Some(*i as i64),
+            Value::Usize(i) => Some(*i as i64),
+            _ => None,
         }
     }
 }
@@ -133,31 +155,6 @@ impl Vm {
         self.exec(false)
     }
 
-    /// Run a function given its name, returning the exit code
-    /// Mainly used for debugging
-    /// TODO: this does not yet handle arguments. Would want this to be called
-    /// by a future REPL.
-    pub fn run_function_by_name(&mut self, name: &str) -> Result<i32> {
-        let (_, code_obj) = self.db.get_code_object_by_name(name)?;
-
-        let main = StackFrame {
-            code_obj,
-            stack: Vec::new(),
-            locals: HashMap::new(),
-            instruction: 0,
-        };
-        self.call_stack.push(main);
-        self.exec(false)
-    }
-
-    /// Run the given frame and return the final state of the frame.
-    /// Mainly used for debugging.
-    fn run_frame(&mut self, frame: StackFrame) -> Result<StackFrame> {
-        self.call_stack.push(frame);
-        self.exec(true)?;
-        Ok(self.call_stack.last().unwrap().clone())
-    }
-
     /// With debug=true, the final frame will stay on the call stack.
     fn exec(&mut self, debug: bool) -> Result<i32> {
         let mut status_code = 0;
@@ -205,8 +202,11 @@ impl Vm {
                     stack.push(val.clone());
                 }
                 Instr::LoadLit(i) => {
-                    // TODO: throw err with out of bounds
-                    stack.push(frame.code_obj.litpool[i].clone());
+                    let lit =
+                        frame.code_obj.litpool.get(i).ok_or_else(|| {
+                            anyhow!("literal with index {i} out of bounds")
+                        })?;
+                    stack.push(lit.clone());
                 }
                 Instr::StoreLocal(i) => {
                     let k = i + frame.code_obj.argcount;
@@ -443,15 +443,173 @@ impl Vm {
                     }
                 }
 
-                Instr::LoadArray => {}
-                Instr::StoreArray => {}
-                Instr::MakeArray => {}
-                Instr::MakeSlice => {}
-                Instr::StoreSlice => {}
+                /*
+                 * Container instructions
+                 */
+                Instr::ContMakeS(n) => {
+                    if stack.len() < n {
+                        bail!("cannot build container: stack underflow");
+                    }
 
-                Instr::LoadField => {}
-                Instr::StoreField => {}
-                Instr::MakeStruct => {}
+                    let start = stack.len().saturating_sub(n);
+
+                    let container: Vec<Value> = stack.drain(start..).collect();
+                    stack.push(Value::Container(container));
+                }
+                Instr::ContMake => {
+                    let n = stack.pop().ok_or_else(|| {
+                        anyhow!("cannot build dynamic container: no length on stack")
+                    })?;
+
+                    if let Some(n) = n.as_int().map(|x| x as usize) {
+                        if stack.len() < n {
+                            bail!("cannot build container: not enough elements on stack");
+                        }
+
+                        let start = stack.len().saturating_sub(n);
+                        let container: Vec<Value> = stack.drain(start..).collect();
+                        stack.push(Value::Container(container));
+                    } else {
+                        bail!("cannot build dynamic container: invalid length on stack")
+                    }
+                }
+
+                // Instr::ContInsertS(_) | Instr::ContInsert => unimplemented!(),
+                Instr::ContGetS(i) => {
+                    let container = stack
+                        .pop()
+                        .ok_or_else(|| anyhow!("no container on stack"))?;
+                    if let Value::Container(cont) = container {
+                        let val = cont.get(i).ok_or_else(|| {
+                            anyhow!("index {i} out of bounds for container")
+                        })?;
+                        // TODO(high): This is a problematic clone
+                        // Need to add some additional indirection (references, heap/box, etc...)
+                        stack.push(val.clone());
+                    } else {
+                        bail!("cannot get: no container on stack");
+                    }
+                }
+                Instr::ContGet => {
+                    let index = stack
+                        .pop()
+                        .map(|i| i.as_int())
+                        .flatten()
+                        .ok_or_else(|| anyhow!("no index on stack"))?;
+
+                    let container = stack
+                        .pop()
+                        .ok_or_else(|| anyhow!("no container on stack"))?;
+                    if let Value::Container(cont) = container {
+                        let val = cont.get(index as usize).ok_or_else(|| {
+                            anyhow!("index {index} out of bounds for container")
+                        })?;
+                        // TODO(high): This is a problematic clone
+                        // Need to add some additional indirection (references, heap/box, etc...)
+                        stack.push(val.clone());
+                    } else {
+                        bail!("cannot get: no container on stack");
+                    }
+                }
+
+                Instr::ContSetS(i) => {
+                    let val = stack.pop().ok_or_else(|| anyhow!("no value given"))?;
+                    let container = stack
+                        .pop()
+                        .ok_or_else(|| anyhow!("no container on stack"))?;
+
+                    if let Value::Container(cont) = container {
+                        // TODO(high): Problematic clone
+                        let mut cont = cont.clone();
+                        cont[i] = val;
+                        stack.push(Value::Container(cont));
+                    } else {
+                        bail!("cannot set: no container on stack");
+                    }
+                }
+
+                Instr::ContSet => {
+                    let index = stack
+                        .pop()
+                        .map(|i| i.as_int())
+                        .flatten()
+                        .ok_or_else(|| anyhow!("no index on stack"))?;
+                    let val = stack.pop().ok_or_else(|| anyhow!("no value given"))?;
+                    let container = stack
+                        .pop()
+                        .ok_or_else(|| anyhow!("no container on stack"))?;
+
+                    if let Value::Container(cont) = container {
+                        // TODO(high): Problematic clone
+                        let mut cont = cont.clone();
+                        cont[index as usize] = val;
+                        stack.push(Value::Container(cont));
+                    } else {
+                        bail!("cannot set: no container on stack");
+                    }
+                }
+
+                Instr::ContHead => {
+                    let container = stack
+                        .pop()
+                        .ok_or_else(|| anyhow!("no container on stack"))?;
+
+                    if let Value::Container(cont) = container {
+                        // TODO(high): Problematic clone
+                        stack.push(
+                            cont.get(0)
+                                .ok_or_else(|| anyhow!("cannot car empty container"))?
+                                .clone(),
+                        );
+                    } else {
+                        bail!("cannot car container: no container on stack");
+                    }
+                }
+
+                Instr::ContTail => {
+                    let container = stack
+                        .pop()
+                        .ok_or_else(|| anyhow!("no container on stack"))?;
+
+                    if let Value::Container(mut cont) = container {
+                        cont.remove(0);
+                        // TODO(high): Problematic clone
+                        stack.push(Value::Container(cont.clone()));
+                    } else {
+                        bail!("cannot cdr container: no container on stack");
+                    }
+                }
+
+                Instr::ContExt => {
+                    let c1 = stack
+                        .pop()
+                        .ok_or_else(|| anyhow!("no container on stack"))?;
+
+                    let c2 = stack
+                        .pop()
+                        .ok_or_else(|| anyhow!("no container on stack"))?;
+
+                    match (c1, c2) {
+                        (Value::Container(mut c1), Value::Container(mut c2)) => {
+                            c2.append(&mut c1);
+                            // TODO(high): problematic clone
+                            stack.push(Value::Container(c2.clone()));
+                        }
+                        _ => bail!("cannot extend non-containers"),
+                    }
+                }
+
+                Instr::ContLen => {
+                    let container = stack
+                        .pop()
+                        .ok_or_else(|| anyhow!("no container on stack"))?;
+
+                    if let Value::Container(cont) = container {
+                        stack.push(Value::Usize(cont.len()));
+                    } else {
+                        bail!("cannot get length: no container on stack");
+                    }
+                }
 
                 Instr::Dbg => {
                     let tos = stack.last().ok_or_else(|| {
@@ -460,6 +618,8 @@ impl Vm {
                     println!("{tos:?} ");
                 }
                 Instr::Nop => {}
+
+                e => unimplemented!("unimplemented instruction: {e}"),
             }
 
             // Update program counter for this frame
@@ -520,14 +680,67 @@ impl CodeObject {
     }
 }
 
+impl PartialOrd for Value {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            // One-to-one comparisons
+            (Value::I8(x), Value::I8(y)) => Some(x.cmp(y)),
+            (Value::U8(x), Value::U8(y)) => Some(x.cmp(y)),
+            (Value::I16(x), Value::I16(y)) => Some(x.cmp(y)),
+            (Value::U16(x), Value::U16(y)) => Some(x.cmp(y)),
+            (Value::I32(x), Value::I32(y)) => Some(x.cmp(y)),
+            (Value::U32(x), Value::U32(y)) => Some(x.cmp(y)),
+            (Value::I64(x), Value::I64(y)) => Some(x.cmp(y)),
+            (Value::U64(x), Value::U64(y)) => Some(x.cmp(y)),
+            (Value::I128(x), Value::I128(y)) => Some(x.cmp(y)),
+            (Value::U128(x), Value::U128(y)) => Some(x.cmp(y)),
+            (Value::Isize(x), Value::Isize(y)) => Some(x.cmp(y)),
+            (Value::Usize(x), Value::Usize(y)) => Some(x.cmp(y)),
+            (Value::Char(x), Value::Char(y)) => Some(x.cmp(y)),
+            (Value::Bool(x), Value::Bool(y)) => Some(x.cmp(y)),
+            (Value::Hash(x), Value::Hash(y)) => Some(x.cmp(y)),
+            (Value::String(x), Value::String(y)) => Some(x.cmp(y)),
+
+            // Int-to-int comparisons
+
+            // TODO: Safer casts
+            (Value::Usize(x), Value::I32(y)) => Some(x.cmp(&(*y as usize))),
+            (Value::I32(x), Value::Usize(y)) => Some(x.cmp(&(*y as i32))),
+
+            e => panic!("cannot compare {e:?}"),
+        }
+    }
+}
+
 impl Add for Value {
     type Output = Self;
 
     fn add(self, other: Self) -> Self {
         match (self, other) {
+            // Signed integers
+            (Value::I8(x), Value::I8(y)) => Value::I8(x + y),
+            (Value::I16(x), Value::I16(y)) => Value::I16(x + y),
             (Value::I32(x), Value::I32(y)) => Value::I32(x + y),
+            (Value::I64(x), Value::I64(y)) => Value::I64(x + y),
+            (Value::I128(x), Value::I128(y)) => Value::I128(x + y),
+            (Value::Isize(x), Value::Isize(y)) => Value::Isize(x + y),
+
+            // Unsigned integers
+            (Value::U8(x), Value::U8(y)) => Value::U8(x + y),
+            (Value::U16(x), Value::U16(y)) => Value::U16(x + y),
+            (Value::U32(x), Value::U32(y)) => Value::U32(x + y),
+            (Value::U64(x), Value::U64(y)) => Value::U64(x + y),
+            (Value::U128(x), Value::U128(y)) => Value::U128(x + y),
+            (Value::Usize(x), Value::Usize(y)) => Value::Usize(x + y),
+
+            // Floats
+            (Value::F32(x), Value::F32(y)) => Value::F32(x + y),
+            (Value::F64(x), Value::F64(y)) => Value::F64(x + y),
+
+            // Strings
             (Value::String(x), Value::String(y)) => Value::String(x + &y),
-            _ => panic!("cannot add values of different type"),
+
+            _ => panic!("cannot add values of different types"),
         }
     }
 }
@@ -537,8 +750,27 @@ impl Sub for Value {
 
     fn sub(self, other: Self) -> Self {
         match (self, other) {
+            // Signed integers
+            (Value::I8(x), Value::I8(y)) => Value::I8(x - y),
+            (Value::I16(x), Value::I16(y)) => Value::I16(x - y),
             (Value::I32(x), Value::I32(y)) => Value::I32(x - y),
-            _ => panic!("failed to perform sub"),
+            (Value::I64(x), Value::I64(y)) => Value::I64(x - y),
+            (Value::I128(x), Value::I128(y)) => Value::I128(x - y),
+            (Value::Isize(x), Value::Isize(y)) => Value::Isize(x - y),
+
+            // Unsigned integers
+            (Value::U8(x), Value::U8(y)) => Value::U8(x - y),
+            (Value::U16(x), Value::U16(y)) => Value::U16(x - y),
+            (Value::U32(x), Value::U32(y)) => Value::U32(x - y),
+            (Value::U64(x), Value::U64(y)) => Value::U64(x - y),
+            (Value::U128(x), Value::U128(y)) => Value::U128(x - y),
+            (Value::Usize(x), Value::Usize(y)) => Value::Usize(x - y),
+
+            // Floats
+            (Value::F32(x), Value::F32(y)) => Value::F32(x - y),
+            (Value::F64(x), Value::F64(y)) => Value::F64(x - y),
+
+            _ => panic!("cannot subtract values of different types"),
         }
     }
 }
@@ -548,11 +780,27 @@ impl Mul for Value {
 
     fn mul(self, other: Self) -> Self {
         match (self, other) {
+            // Signed integers
+            (Value::I8(x), Value::I8(y)) => Value::I8(x * y),
+            (Value::I16(x), Value::I16(y)) => Value::I16(x * y),
             (Value::I32(x), Value::I32(y)) => Value::I32(x * y),
-            (Value::I32(x), Value::String(s)) | (Value::String(s), Value::I32(x)) => {
-                Value::String(s.repeat(x as usize))
-            }
-            _ => panic!("failed to perform mul"),
+            (Value::I64(x), Value::I64(y)) => Value::I64(x * y),
+            (Value::I128(x), Value::I128(y)) => Value::I128(x * y),
+            (Value::Isize(x), Value::Isize(y)) => Value::Isize(x * y),
+
+            // Unsigned integers
+            (Value::U8(x), Value::U8(y)) => Value::U8(x * y),
+            (Value::U16(x), Value::U16(y)) => Value::U16(x * y),
+            (Value::U32(x), Value::U32(y)) => Value::U32(x * y),
+            (Value::U64(x), Value::U64(y)) => Value::U64(x * y),
+            (Value::U128(x), Value::U128(y)) => Value::U128(x * y),
+            (Value::Usize(x), Value::Usize(y)) => Value::Usize(x * y),
+
+            // Floats
+            (Value::F32(x), Value::F32(y)) => Value::F32(x * y),
+            (Value::F64(x), Value::F64(y)) => Value::F64(x * y),
+
+            _ => panic!("cannot multiply values of different types"),
         }
     }
 }
@@ -562,8 +810,27 @@ impl Div for Value {
 
     fn div(self, other: Self) -> Self {
         match (self, other) {
+            // Signed integers
+            (Value::I8(x), Value::I8(y)) => Value::I8(x / y),
+            (Value::I16(x), Value::I16(y)) => Value::I16(x / y),
             (Value::I32(x), Value::I32(y)) => Value::I32(x / y),
-            _ => panic!("failed to perform div"),
+            (Value::I64(x), Value::I64(y)) => Value::I64(x / y),
+            (Value::I128(x), Value::I128(y)) => Value::I128(x / y),
+            (Value::Isize(x), Value::Isize(y)) => Value::Isize(x / y),
+
+            // Unsigned integers
+            (Value::U8(x), Value::U8(y)) => Value::U8(x / y),
+            (Value::U16(x), Value::U16(y)) => Value::U16(x / y),
+            (Value::U32(x), Value::U32(y)) => Value::U32(x / y),
+            (Value::U64(x), Value::U64(y)) => Value::U64(x / y),
+            (Value::U128(x), Value::U128(y)) => Value::U128(x / y),
+            (Value::Usize(x), Value::Usize(y)) => Value::Usize(x / y),
+
+            // Floats
+            (Value::F32(x), Value::F32(y)) => Value::F32(x / y),
+            (Value::F64(x), Value::F64(y)) => Value::F64(x / y),
+
+            _ => panic!("cannot divide values of different types"),
         }
     }
 }
@@ -573,8 +840,27 @@ impl Rem for Value {
 
     fn rem(self, other: Self) -> Self {
         match (self, other) {
+            // Signed integers
+            (Value::I8(x), Value::I8(y)) => Value::I8(x % y),
+            (Value::I16(x), Value::I16(y)) => Value::I16(x % y),
             (Value::I32(x), Value::I32(y)) => Value::I32(x % y),
-            _ => panic!("failed to perform rem"),
+            (Value::I64(x), Value::I64(y)) => Value::I64(x % y),
+            (Value::I128(x), Value::I128(y)) => Value::I128(x % y),
+            (Value::Isize(x), Value::Isize(y)) => Value::Isize(x % y),
+
+            // Unsigned integers
+            (Value::U8(x), Value::U8(y)) => Value::U8(x % y),
+            (Value::U16(x), Value::U16(y)) => Value::U16(x % y),
+            (Value::U32(x), Value::U32(y)) => Value::U32(x % y),
+            (Value::U64(x), Value::U64(y)) => Value::U64(x % y),
+            (Value::U128(x), Value::U128(y)) => Value::U128(x % y),
+            (Value::Usize(x), Value::Usize(y)) => Value::Usize(x % y),
+
+            // Floats
+            (Value::F32(x), Value::F32(y)) => Value::F32(x % y),
+            (Value::F64(x), Value::F64(y)) => Value::F64(x % y),
+
+            _ => panic!("cannot perform modulo on values of different types"),
         }
     }
 }
@@ -584,8 +870,23 @@ impl Shl for Value {
 
     fn shl(self, other: Self) -> Self {
         match (self, other) {
+            // Signed integers
+            (Value::I8(x), Value::I8(y)) => Value::I8(x << y),
+            (Value::I16(x), Value::I16(y)) => Value::I16(x << y),
             (Value::I32(x), Value::I32(y)) => Value::I32(x << y),
-            _ => panic!("failed to perform shl"),
+            (Value::I64(x), Value::I64(y)) => Value::I64(x << y),
+            (Value::I128(x), Value::I128(y)) => Value::I128(x << y),
+            (Value::Isize(x), Value::Isize(y)) => Value::Isize(x << y),
+
+            // Unsigned integers
+            (Value::U8(x), Value::U8(y)) => Value::U8(x << y),
+            (Value::U16(x), Value::U16(y)) => Value::U16(x << y),
+            (Value::U32(x), Value::U32(y)) => Value::U32(x << y),
+            (Value::U64(x), Value::U64(y)) => Value::U64(x << y),
+            (Value::U128(x), Value::U128(y)) => Value::U128(x << y),
+            (Value::Usize(x), Value::Usize(y)) => Value::Usize(x << y),
+
+            _ => panic!("cannot perform left shift on values of different types"),
         }
     }
 }
@@ -595,8 +896,23 @@ impl Shr for Value {
 
     fn shr(self, other: Self) -> Self {
         match (self, other) {
+            // Signed integers
+            (Value::I8(x), Value::I8(y)) => Value::I8(x >> y),
+            (Value::I16(x), Value::I16(y)) => Value::I16(x >> y),
             (Value::I32(x), Value::I32(y)) => Value::I32(x >> y),
-            _ => panic!("failed to perform shr"),
+            (Value::I64(x), Value::I64(y)) => Value::I64(x >> y),
+            (Value::I128(x), Value::I128(y)) => Value::I128(x >> y),
+            (Value::Isize(x), Value::Isize(y)) => Value::Isize(x >> y),
+
+            // Unsigned integers
+            (Value::U8(x), Value::U8(y)) => Value::U8(x >> y),
+            (Value::U16(x), Value::U16(y)) => Value::U16(x >> y),
+            (Value::U32(x), Value::U32(y)) => Value::U32(x >> y),
+            (Value::U64(x), Value::U64(y)) => Value::U64(x >> y),
+            (Value::U128(x), Value::U128(y)) => Value::U128(x >> y),
+            (Value::Usize(x), Value::Usize(y)) => Value::Usize(x >> y),
+
+            _ => panic!("cannot perform right shift on values of different types"),
         }
     }
 }
@@ -606,8 +922,19 @@ impl Neg for Value {
 
     fn neg(self) -> Self {
         match self {
+            // Signed integers
+            Value::I8(x) => Value::I8(-x),
+            Value::I16(x) => Value::I16(-x),
             Value::I32(x) => Value::I32(-x),
-            _ => panic!("failed to perform neg"),
+            Value::I64(x) => Value::I64(-x),
+            Value::I128(x) => Value::I128(-x),
+            Value::Isize(x) => Value::Isize(-x),
+
+            // Floats
+            Value::F32(x) => Value::F32(-x),
+            Value::F64(x) => Value::F64(-x),
+
+            _ => panic!("cannot negate this value type"),
         }
     }
 }
@@ -618,32 +945,119 @@ impl Not for Value {
     fn not(self) -> Self {
         match self {
             Value::Bool(x) => Value::Bool(!x),
-            _ => panic!("failed to perform not"),
+
+            // Bitwise NOT for integers
+            Value::I8(x) => Value::I8(!x),
+            Value::I16(x) => Value::I16(!x),
+            Value::I32(x) => Value::I32(!x),
+            Value::I64(x) => Value::I64(!x),
+            Value::I128(x) => Value::I128(!x),
+            Value::Isize(x) => Value::Isize(!x),
+
+            Value::U8(x) => Value::U8(!x),
+            Value::U16(x) => Value::U16(!x),
+            Value::U32(x) => Value::U32(!x),
+            Value::U64(x) => Value::U64(!x),
+            Value::U128(x) => Value::U128(!x),
+            Value::Usize(x) => Value::Usize(!x),
+
+            _ => panic!("cannot perform NOT operation on this value type"),
         }
     }
 }
 
 impl Value {
+    /// Truthy and falsy values
+    fn is_truthy(&self) -> bool {
+        match self {
+            // Numeric types: 0 is falsy, non-zero is truthy
+            Value::I8(x) => *x != 0,
+            Value::I16(x) => *x != 0,
+            Value::I32(x) => *x != 0,
+            Value::I64(x) => *x != 0,
+            Value::I128(x) => *x != 0,
+            Value::Isize(x) => *x != 0,
+            Value::U8(x) => *x != 0,
+            Value::U16(x) => *x != 0,
+            Value::U32(x) => *x != 0,
+            Value::U64(x) => *x != 0,
+            Value::U128(x) => *x != 0,
+            Value::Usize(x) => *x != 0,
+
+            // Floats: 0.0 is falsy, non-zero is truthy (including NaN and infinity)
+            Value::F32(x) => *x != 0.0,
+            Value::F64(x) => *x != 0.0,
+
+            // Bool: direct value
+            Value::Bool(x) => *x,
+
+            // Char: '\0' is falsy, all others are truthy
+            Value::Char(c) => *c != '\0',
+
+            // String: empty is falsy, non-empty is truthy
+            Value::String(s) => !s.is_empty(),
+            Value::Hash(h) => !h.is_empty(), // Assuming Hash has is_empty()
+
+            // Container: empty is falsy, non-empty is truthy
+            Value::Container(v) => !v.is_empty(),
+        }
+    }
+
     pub fn and(self, other: Self) -> Self {
-        match (self, other) {
-            (Value::I32(x), Value::I32(y)) => Value::I32(((x != 0) && (y != 0)) as i32),
-            (Value::String(s), Value::I32(x)) | (Value::I32(x), Value::String(s)) => {
-                Value::I32((!s.is_empty() && (x != 0)) as i32)
-            }
-            (Value::Bool(x), Value::Bool(y)) => Value::Bool(x && y),
-            _ => panic!("failed to perform and"),
+        let left_truthy = self.is_truthy();
+        let right_truthy = other.is_truthy();
+
+        // Return the last evaluated value if both are truthy, or the falsy one
+        if left_truthy && right_truthy {
+            other
+        } else if !left_truthy {
+            self
+        } else {
+            other
         }
     }
 
     pub fn or(self, other: Self) -> Self {
-        match (self, other) {
-            (Value::I32(x), Value::I32(y)) => Value::I32(((x != 0) && (y != 0)) as i32),
-            (Value::String(s), Value::I32(x)) | (Value::I32(x), Value::String(s)) => {
-                Value::I32((!s.is_empty() && (x != 0)) as i32)
-            }
-            (Value::Bool(x), Value::Bool(y)) => Value::Bool(x || y),
-            _ => panic!("failed to perform or"),
+        let left_truthy = self.is_truthy();
+        let right_truthy = other.is_truthy();
+
+        // Return the first truthy value, or the last one if both are falsy
+        if left_truthy {
+            self
+        } else if right_truthy {
+            other
+        } else {
+            other
         }
+    }
+}
+
+/// Debugging methods
+impl Vm {
+    /// Run a function given its name, returning the exit code
+    /// Mainly used for debugging
+    /// TODO: this does not yet handle arguments. Would want this to be called
+    /// by a future REPL.
+    // Used only for debugging
+    fn run_function_by_name(&mut self, name: &str) -> Result<i32> {
+        let (_, code_obj) = self.db.get_code_object_by_name(name)?;
+
+        let main = StackFrame {
+            code_obj,
+            stack: Vec::new(),
+            locals: HashMap::new(),
+            instruction: 0,
+        };
+        self.call_stack.push(main);
+        self.exec(false)
+    }
+
+    /// Run the given frame and return the final state of the frame.
+    /// Mainly used for debugging.
+    fn run_frame(&mut self, frame: StackFrame) -> Result<StackFrame> {
+        self.call_stack.push(frame);
+        self.exec(true)?;
+        Ok(self.call_stack.last().unwrap().clone())
     }
 }
 
@@ -665,6 +1079,20 @@ pub mod tests {
 
     fn init_frame(code: Bytecode) -> StackFrame {
         let code_obj = init_code_obj(code);
+        StackFrame {
+            code_obj,
+            stack: Vec::new(),
+            locals: HashMap::from([
+                ("x".into(), Value::int(10)),
+                ("y".into(), Value::string("ok")),
+                ("z".into(), Value::int(64)),
+            ]),
+            instruction: 0,
+        }
+    }
+
+    fn init_frame_with_pool(code: Bytecode, litpool: Vec<Value>) -> StackFrame {
+        let code_obj = init_code_obj_with_pool(code, litpool);
         StackFrame {
             code_obj,
             stack: Vec::new(),
@@ -1070,5 +1498,250 @@ pub mod tests {
         assert_eq!(f(10), 55);
         assert_eq!(f(15), 610);
         assert_eq!(f(25), 75025);
+    }
+
+    #[test]
+    fn test_cont_build() {
+        let mut vm = Vm::new().unwrap();
+
+        // Static
+        vm.run_frame(init_frame(bytecode![
+            Instr::LoadLit(1),
+            Instr::LoadLit(1),
+            Instr::LoadLit(1),
+            Instr::ContMakeS(3)
+        ]))
+        .unwrap();
+
+        assert_eq!(
+            vm.call_stack.pop().unwrap().stack.pop().unwrap(),
+            Value::Container(vec![
+                Value::string("hello"),
+                Value::string("hello"),
+                Value::string("hello"),
+            ])
+        );
+
+        // Dynamic
+        vm.run_frame(init_frame(bytecode![
+            Instr::LoadLit(1),
+            Instr::LoadLit(1),
+            Instr::LoadLit(1),
+            Instr::LoadLit(1),
+            Instr::LoadLit(1),
+            Instr::LoadLit(0),
+            Instr::ContMake
+        ]))
+        .unwrap();
+
+        assert_eq!(
+            vm.call_stack.pop().unwrap().stack.pop().unwrap(),
+            Value::Container(vec![
+                Value::string("hello"),
+                Value::string("hello"),
+                Value::string("hello"),
+                Value::string("hello"),
+                Value::string("hello"),
+            ])
+        );
+
+        // Too few elements on stack
+        let t = vm.run_frame(init_frame(bytecode![
+            Instr::LoadLit(1),
+            Instr::LoadLit(0),
+            Instr::ContMake
+        ]));
+        assert!(t.is_err());
+    }
+
+    #[test]
+    fn test_cont_get() {
+        let mut vm = Vm::new().unwrap();
+
+        // Static
+        vm.run_frame(init_frame(bytecode![
+            // Build
+            Instr::LoadLit(0),
+            Instr::LoadLit(0),
+            Instr::LoadLit(1),
+            Instr::ContMakeS(3),
+            Instr::StoreLocal(0),
+            // Get
+            Instr::LoadLocal(0),
+            Instr::ContGetS(0),
+            Instr::LoadLocal(0),
+            Instr::ContGetS(1),
+            Instr::LoadLocal(0),
+            Instr::ContGetS(2)
+        ]))
+        .unwrap();
+
+        let mut stack = vm.call_stack.pop().unwrap().stack;
+        assert_eq!(stack.pop().unwrap(), Value::string("hello"));
+        assert_eq!(stack.pop().unwrap(), Value::I32(5));
+        assert_eq!(stack.pop().unwrap(), Value::I32(5));
+
+        // Dynamic
+        vm.run_frame(init_frame_with_pool(
+            bytecode![
+                // Build
+                Instr::LoadLit(0),
+                Instr::LoadLit(1),
+                Instr::ContMakeS(2),
+                Instr::StoreLocal(0),
+                // Get
+                Instr::LoadLocal(0),
+                Instr::LoadLit(2),
+                Instr::ContGet,
+                Instr::LoadLocal(0),
+                Instr::LoadLit(3),
+                Instr::ContGet
+            ],
+            vec![
+                Value::I32(5),
+                Value::string("hello"),
+                Value::I32(0),
+                Value::I32(1),
+            ],
+        ))
+        .unwrap();
+
+        let mut stack = vm.call_stack.pop().unwrap().stack;
+        assert_eq!(stack.pop().unwrap(), Value::string("hello"));
+        assert_eq!(stack.pop().unwrap(), Value::I32(5));
+    }
+
+    #[test]
+    fn test_cont_set() {
+        let mut vm = Vm::new().unwrap();
+
+        // Static
+        vm.run_frame(init_frame(bytecode![
+            // Build
+            Instr::LoadLit(0),
+            Instr::LoadLit(1),
+            Instr::ContMakeS(2),
+            // Set
+            Instr::LoadLit(1),
+            Instr::ContSetS(0), // Set to "hello"
+            // Check
+            Instr::ContGetS(0)
+        ]))
+        .unwrap();
+
+        let tos = vm.call_stack.pop().unwrap().stack.pop().unwrap();
+        assert_eq!(tos, Value::string("hello"));
+
+        // Dynamic
+        vm.run_frame(init_frame_with_pool(
+            bytecode![
+                // Build
+                Instr::LoadLit(0),
+                Instr::LoadLit(1),
+                Instr::ContMakeS(2),
+                // Set
+                Instr::LoadLit(1), // Load value "hello"
+                Instr::LoadLit(2), // load index = 1
+                Instr::ContSet,    // Set to "hello"
+                // Check
+                Instr::ContGetS(1)
+            ],
+            vec![Value::I32(5), Value::string("hello"), Value::I32(1)],
+        ))
+        .unwrap();
+
+        let tos = vm.call_stack.pop().unwrap().stack.pop().unwrap();
+        assert_eq!(tos, Value::string("hello"));
+    }
+
+    #[test]
+    fn test_cont_head() {
+        let mut vm = Vm::new().unwrap();
+
+        vm.run_frame(init_frame(bytecode![
+            // Build
+            Instr::LoadLit(0),
+            Instr::LoadLit(1),
+            Instr::ContMakeS(2),
+            // Get head
+            Instr::ContHead
+        ]))
+        .unwrap();
+
+        let tos = vm.call_stack.pop().unwrap().stack.pop().unwrap();
+        assert_eq!(tos, Value::I32(5));
+    }
+
+    #[test]
+    fn test_cont_tail() {
+        let mut vm = Vm::new().unwrap();
+
+        vm.run_frame(init_frame(bytecode![
+            // Build
+            Instr::LoadLit(0),
+            Instr::LoadLit(0),
+            Instr::LoadLit(1),
+            Instr::ContMakeS(3),
+            // Get Tail
+            Instr::ContTail
+        ]))
+        .unwrap();
+
+        let tos = vm.call_stack.pop().unwrap().stack.pop().unwrap();
+        assert_eq!(
+            tos,
+            Value::Container(vec![Value::I32(5), Value::string("hello")])
+        );
+    }
+
+    #[test]
+    fn test_cont_extend() {
+        let mut vm = Vm::new().unwrap();
+
+        vm.run_frame(init_frame(bytecode![
+            // Build 1
+            Instr::LoadLit(0),
+            Instr::LoadLit(0),
+            Instr::LoadLit(1),
+            Instr::ContMakeS(3),
+            // Build 2
+            Instr::LoadLit(0),
+            Instr::LoadLit(1),
+            Instr::ContMakeS(2),
+            // Extend
+            Instr::ContExt
+        ]))
+        .unwrap();
+
+        let tos = vm.call_stack.pop().unwrap().stack.pop().unwrap();
+        assert_eq!(
+            tos,
+            Value::Container(vec![
+                Value::I32(5),
+                Value::I32(5),
+                Value::string("hello"),
+                Value::I32(5),
+                Value::string("hello"),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_cont_length() {
+        let mut vm = Vm::new().unwrap();
+
+        vm.run_frame(init_frame(bytecode![
+            // Build
+            Instr::LoadLit(0),
+            Instr::LoadLit(0),
+            Instr::LoadLit(1),
+            Instr::ContMakeS(3),
+            // Check len
+            Instr::ContLen
+        ]))
+        .unwrap();
+
+        let tos = vm.call_stack.pop().unwrap().stack.pop().unwrap();
+        assert_eq!(tos, Value::Usize(3));
     }
 }

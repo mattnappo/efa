@@ -30,6 +30,7 @@ pub enum UnaryOp {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Instr {
+    // Stack management
     LoadArg(usize),
     LoadLocal(usize),
     LoadLit(usize),
@@ -37,6 +38,7 @@ pub enum Instr {
     Pop,
     Dup,
 
+    // Function calls
     LoadFunc(Hash),
     LoadDyn(String),
     Call,
@@ -44,6 +46,7 @@ pub enum Instr {
     Return,
     ReturnVal,
 
+    // Jumps
     Jump(usize),
     JumpT(usize),
     JumpF(usize),
@@ -54,19 +57,32 @@ pub enum Instr {
     JumpLt(usize),
     JumpLe(usize),
 
+    // ALU ops
     BinOp(BinOp),
     UnaryOp(UnaryOp),
 
-    LoadArray,
-    StoreArray,
-    MakeArray,
-    MakeSlice,
-    StoreSlice,
+    /* Containers
+     * The S suffix (static) is to specify the index statically.
+     * Instruction variants without the S get the index from the stack
+     */
+    ContMakeS(usize),
+    ContMake,
 
-    LoadField,
-    StoreField,
-    MakeStruct,
+    ContInsertS(usize),
+    ContInsert,
 
+    ContGetS(usize),
+    ContGet,
+
+    ContSetS(usize),
+    ContSet,
+
+    ContHead,
+    ContTail,
+    ContExt,
+    ContLen,
+
+    // Misc
     Dbg,
     Nop,
 }
@@ -160,15 +176,22 @@ impl fmt::Display for Instr {
                 Instr::BinOp(op) => format!("{op}"),
                 Instr::UnaryOp(op) => format!("{op}"),
 
-                Instr::LoadArray => "load_arr".to_string(),
-                Instr::StoreArray => "store_arr".to_string(),
-                Instr::MakeArray => "make_arr".to_string(),
-                Instr::MakeSlice => "make_slice".to_string(),
-                Instr::StoreSlice => "store_slice".to_string(),
+                Instr::ContMakeS(n) => format!("cont_make {n}"),
+                Instr::ContMake => "cont_make".to_string(),
 
-                Instr::LoadField => "load_field".to_string(),
-                Instr::StoreField => "store_field".to_string(),
-                Instr::MakeStruct => "make_struct".to_string(),
+                Instr::ContInsertS(i) => format!("cont_ins {i}"),
+                Instr::ContInsert => "cont_ins".to_string(),
+
+                Instr::ContGetS(i) => format!("cont_get {i}"),
+                Instr::ContGet => "cont_get".to_string(),
+
+                Instr::ContSetS(i) => format!("cont_set {i}"),
+                Instr::ContSet => "cont_set".to_string(),
+
+                Instr::ContHead => "car".to_string(),
+                Instr::ContTail => "cdr".to_string(),
+                Instr::ContExt => "cont_ext".to_string(),
+                Instr::ContLen => "cont_len".to_string(),
 
                 Instr::Dbg => "dbg".to_string(),
                 Instr::Nop => "nop".to_string(),
