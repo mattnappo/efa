@@ -109,30 +109,6 @@ impl Value {
     }
 }
 
-impl PartialOrd for Value {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match (self, other) {
-            (Value::I8(x), Value::I8(y)) => Some(x.cmp(y)),
-            (Value::U8(x), Value::U8(y)) => Some(x.cmp(y)),
-            (Value::I16(x), Value::I16(y)) => Some(x.cmp(y)),
-            (Value::U16(x), Value::U16(y)) => Some(x.cmp(y)),
-            (Value::I32(x), Value::I32(y)) => Some(x.cmp(y)),
-            (Value::U32(x), Value::U32(y)) => Some(x.cmp(y)),
-            (Value::I64(x), Value::I64(y)) => Some(x.cmp(y)),
-            (Value::U64(x), Value::U64(y)) => Some(x.cmp(y)),
-            (Value::I128(x), Value::I128(y)) => Some(x.cmp(y)),
-            (Value::U128(x), Value::U128(y)) => Some(x.cmp(y)),
-            (Value::Isize(x), Value::Isize(y)) => Some(x.cmp(y)),
-            (Value::Usize(x), Value::Usize(y)) => Some(x.cmp(y)),
-            (Value::Char(x), Value::Char(y)) => Some(x.cmp(y)),
-            (Value::Bool(x), Value::Bool(y)) => Some(x.cmp(y)),
-            (Value::Hash(x), Value::Hash(y)) => Some(x.cmp(y)),
-            (Value::String(x), Value::String(y)) => Some(x.cmp(y)),
-            e => panic!("cannot compare {e:?}"),
-        }
-    }
-}
-
 impl Vm {
     /// Create an in-memory VM
     pub fn new() -> Result<Vm> {
@@ -701,6 +677,38 @@ impl CodeObject {
     pub fn hash_str(&self) -> Result<String> {
         let hash = self.hash()?;
         Ok(format!("0x{}", hex::encode(hash)))
+    }
+}
+
+impl PartialOrd for Value {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            // One-to-one comparisons
+            (Value::I8(x), Value::I8(y)) => Some(x.cmp(y)),
+            (Value::U8(x), Value::U8(y)) => Some(x.cmp(y)),
+            (Value::I16(x), Value::I16(y)) => Some(x.cmp(y)),
+            (Value::U16(x), Value::U16(y)) => Some(x.cmp(y)),
+            (Value::I32(x), Value::I32(y)) => Some(x.cmp(y)),
+            (Value::U32(x), Value::U32(y)) => Some(x.cmp(y)),
+            (Value::I64(x), Value::I64(y)) => Some(x.cmp(y)),
+            (Value::U64(x), Value::U64(y)) => Some(x.cmp(y)),
+            (Value::I128(x), Value::I128(y)) => Some(x.cmp(y)),
+            (Value::U128(x), Value::U128(y)) => Some(x.cmp(y)),
+            (Value::Isize(x), Value::Isize(y)) => Some(x.cmp(y)),
+            (Value::Usize(x), Value::Usize(y)) => Some(x.cmp(y)),
+            (Value::Char(x), Value::Char(y)) => Some(x.cmp(y)),
+            (Value::Bool(x), Value::Bool(y)) => Some(x.cmp(y)),
+            (Value::Hash(x), Value::Hash(y)) => Some(x.cmp(y)),
+            (Value::String(x), Value::String(y)) => Some(x.cmp(y)),
+
+            // Int-to-int comparisons
+
+            // TODO: Safer casts
+            (Value::Usize(x), Value::I32(y)) => Some(x.cmp(&(*y as usize))),
+            (Value::I32(x), Value::Usize(y)) => Some(x.cmp(&(*y as i32))),
+
+            e => panic!("cannot compare {e:?}"),
+        }
     }
 }
 

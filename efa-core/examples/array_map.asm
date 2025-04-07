@@ -4,21 +4,29 @@ $square 1:
     mul
     ret_val
 
-# TODO: NOT FINISHED
-
+# square each element in array and return the sum of the squares
 $main 0:
     .lit 0
     .lit 10
     .lit 1
     .lit 2
-    .lit 2
+    .lit 3
     .lit 4
+    .lit 5
+    .lit 6
 
+    # build the arr
     load_lit 3
     load_lit 4
     load_lit 5
-    cont_make 3
+    load_lit 6
+    load_lit 7
+    cont_make 5
     store_loc 1 # store the array in x1
+
+    # sum = 0
+    load_lit 0
+    store_loc 3
 
     load_lit 0
     store_loc 0    # i = 0
@@ -41,6 +49,12 @@ top:
     # square it
     load_dyn $square
     call
+    dup
+
+    # keep track of sum
+    load_loc 3     # sum
+    add
+    store_loc 3    # update sum
 
     # store back into arr
     load_loc 0 # i
@@ -60,5 +74,5 @@ exit:
     dbg
     pop
 
-    load_lit 0
+    load_loc 3
     ret_val

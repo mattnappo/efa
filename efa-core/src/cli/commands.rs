@@ -85,6 +85,7 @@ mod integration_test {
         assert_eq!(run!("examples/isqrt.asm"), 225);
         assert_eq!(run!("examples/main.asm"), 1);
         assert_eq!(run!("examples/array_2d.asm"), 6);
+        assert_eq!(run!("examples/array_map.asm"), 90);
     }
 
     #[test]
