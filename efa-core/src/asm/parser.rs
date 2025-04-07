@@ -51,10 +51,8 @@ enum ParseToken {
     FuncDef(String, usize),
     /// An instruction
     Instr(Instr),
-    /// Label name
-    Label(String),
-    /// Literal definition
-    Lit(Value),
+    /// A label
+    Label,
 }
 
 #[derive(Debug)]
@@ -278,9 +276,9 @@ impl Parser {
                 };
 
                 // Line is a label
+                // Code previous ran already finds labels, so we can ignore
                 if argument.is_none() && base.chars().last().unwrap() == ':' {
-                    let label = base[..base.len() - 1].to_string();
-                    return Result::Ok(ParseToken::Label(label));
+                    return Result::Ok(ParseToken::Label);
                 }
 
                 // Line is an instruction
@@ -516,7 +514,6 @@ mod tests {
         dbg_f("./examples/comments.asm");
         dbg_f("./examples/primes.asm");
         dbg_f("./examples/main.asm");
-        // dbg_f("./examples/cont_parse.asm");
     }
 
     #[test]

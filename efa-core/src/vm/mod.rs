@@ -11,13 +11,9 @@ use crate::bytecode::{BinOp, Bytecode, Instr, UnaryOp};
 use crate::db::Database;
 use crate::{hash_from_vec, Hash, HASH_SIZE};
 
-const STACK_CAP: usize = 256;
-
 #[derive(Debug)]
 pub struct Vm {
     call_stack: Vec<StackFrame>,
-    data_stack_cap: usize,
-    call_stack_cap: usize,
     pub db: Database, // TODO: should not be pub
 }
 
@@ -114,8 +110,6 @@ impl Vm {
     pub fn new() -> Result<Vm> {
         Ok(Vm {
             call_stack: Vec::new(),
-            data_stack_cap: STACK_CAP,
-            call_stack_cap: STACK_CAP,
             db: Database::temp()?,
         })
     }
@@ -124,8 +118,6 @@ impl Vm {
     pub fn initialize<P: AsRef<Path>>(path: P) -> Result<Vm> {
         Ok(Vm {
             call_stack: Vec::new(),
-            data_stack_cap: STACK_CAP,
-            call_stack_cap: STACK_CAP,
             db: Database::open(path)?,
         })
     }
@@ -134,8 +126,6 @@ impl Vm {
     pub fn persistent<P: AsRef<Path>>(path: P) -> Result<Vm> {
         Ok(Vm {
             call_stack: Vec::new(),
-            data_stack_cap: STACK_CAP,
-            call_stack_cap: STACK_CAP,
             db: Database::new(path)?,
         })
     }
@@ -1032,40 +1022,37 @@ impl Value {
     }
 }
 
-/// Debugging methods
-impl Vm {
-    /// Run a function given its name, returning the exit code
-    /// Mainly used for debugging
-    /// TODO: this does not yet handle arguments. Would want this to be called
-    /// by a future REPL.
-    // Used only for debugging
-    fn run_function_by_name(&mut self, name: &str) -> Result<i32> {
-        let (_, code_obj) = self.db.get_code_object_by_name(name)?;
-
-        let main = StackFrame {
-            code_obj,
-            stack: Vec::new(),
-            locals: HashMap::new(),
-            instruction: 0,
-        };
-        self.call_stack.push(main);
-        self.exec(false)
-    }
-
-    /// Run the given frame and return the final state of the frame.
-    /// Mainly used for debugging.
-    fn run_frame(&mut self, frame: StackFrame) -> Result<StackFrame> {
-        self.call_stack.push(frame);
-        self.exec(true)?;
-        Ok(self.call_stack.last().unwrap().clone())
-    }
-}
-
 #[cfg(test)]
 pub mod tests {
     use super::*;
 
     use rand::{distr::Alphanumeric, Rng};
+
+    /// Debugging methods
+    impl Vm {
+        /// Run a function given its name, returning the exit code
+        /// TODO: this does not yet handle arguments. Would want this to be called
+        /// by a future REPL.
+        fn run_function_by_name(&mut self, name: &str) -> Result<i32> {
+            let (_, code_obj) = self.db.get_code_object_by_name(name)?;
+
+            let main = StackFrame {
+                code_obj,
+                stack: Vec::new(),
+                locals: HashMap::new(),
+                instruction: 0,
+            };
+            self.call_stack.push(main);
+            self.exec(false)
+        }
+
+        /// Run the given frame and return the final state of the frame.
+        fn run_frame(&mut self, frame: StackFrame) -> Result<StackFrame> {
+            self.call_stack.push(frame);
+            self.exec(true)?;
+            Ok(self.call_stack.last().unwrap().clone())
+        }
+    }
 
     pub fn init_code_obj(code: Bytecode) -> CodeObject {
         CodeObject {

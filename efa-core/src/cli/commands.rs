@@ -41,7 +41,7 @@ pub fn disassemble_db(db_path: &str) -> Result<String> {
 }
 
 // TODO: support run flag
-pub fn roundtrip_file(file: &str, run: bool) -> Result<()> {
+pub fn roundtrip_file(file: &str, _run: bool) -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let db_file = tmp.path().join("test.db").display().to_string();
     let dis_file = tmp.path().join("dis.asm").display().to_string();

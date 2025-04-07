@@ -78,7 +78,7 @@ where
                     let hash = self
                         .node_store
                         .get_code_object_by_name(name)
-                        .map(|(x, y)| x);
+                        .map(|(x, _)| x);
                     Some((Ok(Some(name.to_string())), hash))
                 }
                 _ => None,

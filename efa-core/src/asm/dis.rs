@@ -1,4 +1,4 @@
-use std::fmt::{self, Write};
+use std::fmt::Write;
 
 use crate::bytecode::Bytecode;
 use crate::vm::CodeObject;

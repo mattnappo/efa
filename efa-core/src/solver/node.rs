@@ -4,7 +4,6 @@ use std::hash::Hash as StdHash;
 use anyhow::Result;
 use derivative::Derivative;
 
-use crate::asm::parser::Parse;
 use crate::db::Database;
 use crate::vm::CodeObject;
 use crate::Hash;
@@ -25,12 +24,6 @@ pub trait NodeStore: Clone + StdHash + PartialEq + Eq {
 /// A node from a file currently being analyzed, whose code object is stored in a `Parse`
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct FreeNodeStore {}
-
-impl FreeNodeStore {
-    pub fn new(nodes: Vec<Parse>) -> Self {
-        Self {}
-    }
-}
 
 /// A node whose code object resides in a database.
 #[derive(Derivative)]
