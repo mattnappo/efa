@@ -140,7 +140,7 @@ impl Parser {
                 }
 
                 let word = parts[0];
-                if word.chars().last().unwrap() != ':' {
+                if word.ends_with(':') {
                     return None;
                 }
 
@@ -161,7 +161,7 @@ impl Parser {
             .map(|(i, (name, offset))| ((name, i), offset))
             .unzip();
 
-        Result::Ok((label_names, label_offsets))
+        Result::Ok(dbg!((label_names, label_offsets)))
     }
 
     fn get_literals(function: &str) -> Result<Vec<Value>, ParseError> {
@@ -194,13 +194,13 @@ impl Parser {
 
                 // String case
                 if arg_chars[0] == '"' {
-                    let s = Self::get_str_lit(line).map(|s| Value::String(s));
+                    let s = Self::get_str_lit(line).map(Value::String);
                     return Some(s);
                 }
 
                 // Hash case
                 if arg.len() >= 2 && arg.starts_with("0x") {
-                    let h = hash_from_str(arg).map(|bytes| Value::Hash(bytes));
+                    let h = hash_from_str(arg).map(Value::Hash);
                     return Some(h.map_err(ParseError::Error));
                 }
 
@@ -216,7 +216,7 @@ impl Parser {
 
     fn get_num_locals(tokens: &[ParseToken]) -> Result<usize, ParseError> {
         let num = tokens
-            .into_iter()
+            .iter()
             .filter_map(|token| match token {
                 ParseToken::Instr(Instr::LoadLocal(i))
                 | ParseToken::Instr(Instr::StoreLocal(i)) => Some(i + 1),
@@ -277,18 +277,17 @@ impl Parser {
 
                 // Line is a label
                 // Code previous ran already finds labels, so we can ignore
-                if argument.is_none() && base.chars().last().unwrap() == ':' {
+                if argument.is_none() && base.ends_with(':') {
                     return Result::Ok(ParseToken::Label);
                 }
 
                 // Line is an instruction
 
                 // Setup arguments
-                let int_argument = argument.map(|a| a.parse::<usize>().ok()).flatten();
-                let str_argument = if int_argument.is_some() {
-                    None
-                } else {
-                    argument
+                let int_argument = argument.and_then(|a| a.parse::<usize>().ok());
+                let str_argument = match int_argument {
+                    Some(_) => None,
+                    None => argument,
                 };
 
                 // dbg!(&line);
@@ -320,6 +319,7 @@ impl Parser {
 
                     // Jump instructions
                     (op, None, Some(arg)) if op.starts_with("jmp") => {
+                        dbg!(&arg);
                         Self::get_jump_instr(op, &label_names, arg)?
                     }
 
@@ -407,10 +407,10 @@ impl Parser {
             .map(|line| {
                 let mut inside_string = false;
                 let mut result = String::new();
-                let mut chars = line.chars().peekable();
+                let chars = line.chars().peekable();
 
                 // Special care taken here to allow .lit "#not a comment"
-                while let Some(c) = chars.next() {
+                for c in chars {
                     if c == '"' || c == '\'' {
                         inside_string = !inside_string;
                         result.push(c);

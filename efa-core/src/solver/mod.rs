@@ -55,12 +55,14 @@ where
         let code = obj
             .code
             .iter()
-            .filter(|instr| match instr {
-                Instr::Call
-                | Instr::CallSelf
-                | Instr::LoadFunc(_)
-                | Instr::LoadDyn(_) => true,
-                _ => false,
+            .filter(|instr| {
+                matches!(
+                    instr,
+                    Instr::Call
+                        | Instr::CallSelf
+                        | Instr::LoadFunc(_)
+                        | Instr::LoadDyn(_)
+                )
             })
             .collect::<Vec<&Instr>>();
 

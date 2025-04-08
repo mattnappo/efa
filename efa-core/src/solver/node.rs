@@ -41,7 +41,7 @@ impl<'a> DatabaseNodeStore<'a> {
 
 impl NodeStore for DatabaseNodeStore<'_> {
     fn get_code_object(&self, hash: &Hash) -> Result<CodeObject> {
-        self.db.get_code_object(&hash)
+        self.db.get_code_object(hash)
     }
 
     fn nodes(&self) -> Result<HashSet<Node>> {

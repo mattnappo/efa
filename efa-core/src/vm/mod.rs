@@ -94,7 +94,7 @@ impl Value {
             Value::U16(i) => Some(*i as i64),
             Value::I32(i) => Some(*i as i64),
             Value::U32(i) => Some(*i as i64),
-            Value::I64(i) => Some(*i as i64),
+            Value::I64(i) => Some(*i),
             Value::U64(i) => Some(*i as i64),
             Value::I128(i) => Some(*i as i64),
             Value::U128(i) => Some(*i as i64),
@@ -483,8 +483,7 @@ impl Vm {
                 Instr::ContGet => {
                     let index = stack
                         .pop()
-                        .map(|i| i.as_int())
-                        .flatten()
+                        .and_then(|i| i.as_int())
                         .ok_or_else(|| anyhow!("no index on stack"))?;
 
                     let container = stack
@@ -521,8 +520,7 @@ impl Vm {
                 Instr::ContSet => {
                     let index = stack
                         .pop()
-                        .map(|i| i.as_int())
-                        .flatten()
+                        .and_then(|i| i.as_int())
                         .ok_or_else(|| anyhow!("no index on stack"))?;
                     let val = stack.pop().ok_or_else(|| anyhow!("no value given"))?;
                     let container = stack
@@ -547,7 +545,7 @@ impl Vm {
                     if let Value::Container(cont) = container {
                         // TODO(high): Problematic clone
                         stack.push(
-                            cont.get(0)
+                            cont.first()
                                 .ok_or_else(|| anyhow!("cannot car empty container"))?
                                 .clone(),
                         );
