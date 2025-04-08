@@ -8,6 +8,7 @@ use crate::db::Database;
 use crate::solver::resolve_dyn::DynCallResolver;
 use crate::vm::Vm;
 
+/// Run a bytecode assembly file.
 /// Parse a file, run the DAG solver, hash and insert everything into a
 /// code database, and find and run the main function.
 pub fn run_scratch_file(file: &str, db_path: Option<&str>) -> Result<i32> {
@@ -21,8 +22,6 @@ pub fn run_scratch_file(file: &str, db_path: Option<&str>) -> Result<i32> {
     } else {
         Vm::new()?
     };
-
-    //dbg!(&resolved);
 
     resolved
         .into_iter()
@@ -41,7 +40,7 @@ pub fn disassemble_db(db_path: &str) -> Result<String> {
 }
 
 // TODO: support run flag
-pub fn roundtrip_file(file: &str, run: bool) -> Result<()> {
+pub fn roundtrip_file(file: &str, _run: bool) -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let db_file = tmp.path().join("test.db").display().to_string();
     let dis_file = tmp.path().join("dis.asm").display().to_string();
@@ -76,6 +75,7 @@ mod integration_test {
     #[test]
     fn test_examples() {
         assert_eq!(run!("examples/args.asm"), 6);
+        assert_eq!(run!("examples/compound_if.asm"), 0);
         assert_eq!(run!("examples/call.asm"), 7);
         assert_eq!(run!("examples/double.asm"), 0);
         assert_eq!(run!("examples/fib.asm"), 6765);

@@ -51,10 +51,8 @@ enum ParseToken {
     FuncDef(String, usize),
     /// An instruction
     Instr(Instr),
-    /// Label name
-    Label(String),
-    /// Literal definition
-    Lit(Value),
+    /// A label
+    Label,
 }
 
 #[derive(Debug)]
@@ -87,21 +85,21 @@ impl Parser {
         let name = parts[0];
         let arg = parts[1];
 
-        let d = name.chars().nth(0).unwrap();
-        let c = arg.chars().last().unwrap();
-
-        if d == '$' && c == ':' {
+        if name.starts_with('$') && arg.ends_with(':') {
             // Now it should be a function def line
             let name = &name[1..];
             let arity = &arg[..arg.len() - 1];
-            let parsed = arity.parse::<usize>();
-            if is_valid_name(name) && parsed.is_ok() {
-                return Some(Result::Ok((name.to_string(), parsed.unwrap())));
-            } else {
-                return Some(Err(ParseError::InvalidFuncDef));
+            let parsed_arity = arity.parse::<usize>();
+
+            match parsed_arity {
+                Result::Ok(arity) if is_valid_name(name) => {
+                    Some(Result::Ok((name.to_string(), arity)))
+                }
+                _ => Some(Err(ParseError::InvalidFuncDef)),
             }
+        } else {
+            None
         }
-        None
     }
 
     fn split_functions(file_contents: &str) -> Result<Vec<String>> {
@@ -127,7 +125,7 @@ impl Parser {
     fn get_labels(
         function: &str,
     ) -> Result<(HashMap<String, usize>, Vec<usize>), ParseError> {
-        // Want a map from label names (L0, L1) to label number
+        // Want a map from label names (L0, L1, etc) to label number
         // And an array of offsets (where index is label number)
         let mut j = 0;
 
@@ -142,7 +140,7 @@ impl Parser {
                 }
 
                 let word = parts[0];
-                if word.chars().last().unwrap() != ':' {
+                if !word.ends_with(':') {
                     return None;
                 }
 
@@ -170,7 +168,7 @@ impl Parser {
         let code = function.lines();
 
         code.filter(|line| !line.is_empty())
-            .filter(|line| line.chars().nth(0).unwrap() == '.')
+            .filter(|line| line.starts_with('.'))
             .filter_map(|line| {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() < 2 {
@@ -179,7 +177,6 @@ impl Parser {
 
                 let first = parts[0];
                 let arg = parts[1];
-                let arg_chars: Vec<char> = arg.chars().collect();
 
                 let opcode = &first[1..];
                 if opcode != "lit" {
@@ -195,14 +192,14 @@ impl Parser {
                 }
 
                 // String case
-                if arg_chars[0] == '"' {
-                    let s = Self::get_str_lit(line).map(|s| Value::String(s));
+                if arg.starts_with('"') {
+                    let s = Self::get_str_lit(line).map(Value::String);
                     return Some(s);
                 }
 
                 // Hash case
                 if arg.len() >= 2 && arg.starts_with("0x") {
-                    let h = hash_from_str(arg).map(|bytes| Value::Hash(bytes));
+                    let h = hash_from_str(arg).map(Value::Hash);
                     return Some(h.map_err(ParseError::Error));
                 }
 
@@ -218,7 +215,7 @@ impl Parser {
 
     fn get_num_locals(tokens: &[ParseToken]) -> Result<usize, ParseError> {
         let num = tokens
-            .into_iter()
+            .iter()
             .filter_map(|token| match token {
                 ParseToken::Instr(Instr::LoadLocal(i))
                 | ParseToken::Instr(Instr::StoreLocal(i)) => Some(i + 1),
@@ -278,19 +275,18 @@ impl Parser {
                 };
 
                 // Line is a label
-                if argument.is_none() && base.chars().last().unwrap() == ':' {
-                    let label = base[..base.len() - 1].to_string();
-                    return Result::Ok(ParseToken::Label(label));
+                // Code previous ran already finds labels, so we can ignore
+                if argument.is_none() && base.ends_with(':') {
+                    return Result::Ok(ParseToken::Label);
                 }
 
                 // Line is an instruction
 
                 // Setup arguments
-                let int_argument = argument.map(|a| a.parse::<usize>().ok()).flatten();
-                let str_argument = if int_argument.is_some() {
-                    None
-                } else {
-                    argument
+                let int_argument = argument.and_then(|a| a.parse::<usize>().ok());
+                let str_argument = match int_argument {
+                    Some(_) => None,
+                    None => argument,
                 };
 
                 // dbg!(&line);
@@ -409,10 +405,10 @@ impl Parser {
             .map(|line| {
                 let mut inside_string = false;
                 let mut result = String::new();
-                let mut chars = line.chars().peekable();
+                let chars = line.chars().peekable();
 
                 // Special care taken here to allow .lit "#not a comment"
-                while let Some(c) = chars.next() {
+                for c in chars {
                     if c == '"' || c == '\'' {
                         inside_string = !inside_string;
                         result.push(c);
@@ -516,7 +512,6 @@ mod tests {
         dbg_f("./examples/comments.asm");
         dbg_f("./examples/primes.asm");
         dbg_f("./examples/main.asm");
-        // dbg_f("./examples/cont_parse.asm");
     }
 
     #[test]

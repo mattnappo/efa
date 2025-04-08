@@ -11,13 +11,9 @@ use crate::bytecode::{BinOp, Bytecode, Instr, UnaryOp};
 use crate::db::Database;
 use crate::{hash_from_vec, Hash, HASH_SIZE};
 
-const STACK_CAP: usize = 256;
-
 #[derive(Debug)]
 pub struct Vm {
     call_stack: Vec<StackFrame>,
-    data_stack_cap: usize,
-    call_stack_cap: usize,
     pub db: Database, // TODO: should not be pub
 }
 
@@ -98,7 +94,7 @@ impl Value {
             Value::U16(i) => Some(*i as i64),
             Value::I32(i) => Some(*i as i64),
             Value::U32(i) => Some(*i as i64),
-            Value::I64(i) => Some(*i as i64),
+            Value::I64(i) => Some(*i),
             Value::U64(i) => Some(*i as i64),
             Value::I128(i) => Some(*i as i64),
             Value::U128(i) => Some(*i as i64),
@@ -114,8 +110,6 @@ impl Vm {
     pub fn new() -> Result<Vm> {
         Ok(Vm {
             call_stack: Vec::new(),
-            data_stack_cap: STACK_CAP,
-            call_stack_cap: STACK_CAP,
             db: Database::temp()?,
         })
     }
@@ -124,8 +118,6 @@ impl Vm {
     pub fn initialize<P: AsRef<Path>>(path: P) -> Result<Vm> {
         Ok(Vm {
             call_stack: Vec::new(),
-            data_stack_cap: STACK_CAP,
-            call_stack_cap: STACK_CAP,
             db: Database::open(path)?,
         })
     }
@@ -134,8 +126,6 @@ impl Vm {
     pub fn persistent<P: AsRef<Path>>(path: P) -> Result<Vm> {
         Ok(Vm {
             call_stack: Vec::new(),
-            data_stack_cap: STACK_CAP,
-            call_stack_cap: STACK_CAP,
             db: Database::new(path)?,
         })
     }
@@ -493,8 +483,7 @@ impl Vm {
                 Instr::ContGet => {
                     let index = stack
                         .pop()
-                        .map(|i| i.as_int())
-                        .flatten()
+                        .and_then(|i| i.as_int())
                         .ok_or_else(|| anyhow!("no index on stack"))?;
 
                     let container = stack
@@ -531,8 +520,7 @@ impl Vm {
                 Instr::ContSet => {
                     let index = stack
                         .pop()
-                        .map(|i| i.as_int())
-                        .flatten()
+                        .and_then(|i| i.as_int())
                         .ok_or_else(|| anyhow!("no index on stack"))?;
                     let val = stack.pop().ok_or_else(|| anyhow!("no value given"))?;
                     let container = stack
@@ -557,7 +545,7 @@ impl Vm {
                     if let Value::Container(cont) = container {
                         // TODO(high): Problematic clone
                         stack.push(
-                            cont.get(0)
+                            cont.first()
                                 .ok_or_else(|| anyhow!("cannot car empty container"))?
                                 .clone(),
                         );
@@ -1019,45 +1007,13 @@ impl Value {
 
     pub fn or(self, other: Self) -> Self {
         let left_truthy = self.is_truthy();
-        let right_truthy = other.is_truthy();
 
         // Return the first truthy value, or the last one if both are falsy
         if left_truthy {
             self
-        } else if right_truthy {
-            other
         } else {
             other
         }
-    }
-}
-
-/// Debugging methods
-impl Vm {
-    /// Run a function given its name, returning the exit code
-    /// Mainly used for debugging
-    /// TODO: this does not yet handle arguments. Would want this to be called
-    /// by a future REPL.
-    // Used only for debugging
-    fn run_function_by_name(&mut self, name: &str) -> Result<i32> {
-        let (_, code_obj) = self.db.get_code_object_by_name(name)?;
-
-        let main = StackFrame {
-            code_obj,
-            stack: Vec::new(),
-            locals: HashMap::new(),
-            instruction: 0,
-        };
-        self.call_stack.push(main);
-        self.exec(false)
-    }
-
-    /// Run the given frame and return the final state of the frame.
-    /// Mainly used for debugging.
-    fn run_frame(&mut self, frame: StackFrame) -> Result<StackFrame> {
-        self.call_stack.push(frame);
-        self.exec(true)?;
-        Ok(self.call_stack.last().unwrap().clone())
     }
 }
 
@@ -1066,6 +1022,32 @@ pub mod tests {
     use super::*;
 
     use rand::{distr::Alphanumeric, Rng};
+
+    /// Debugging methods
+    impl Vm {
+        /// Run a function given its name, returning the exit code
+        /// TODO: this does not yet handle arguments. Would want this to be called
+        /// by a future REPL.
+        fn run_function_by_name(&mut self, name: &str) -> Result<i32> {
+            let (_, code_obj) = self.db.get_code_object_by_name(name)?;
+
+            let main = StackFrame {
+                code_obj,
+                stack: Vec::new(),
+                locals: HashMap::new(),
+                instruction: 0,
+            };
+            self.call_stack.push(main);
+            self.exec(false)
+        }
+
+        /// Run the given frame and return the final state of the frame.
+        fn run_frame(&mut self, frame: StackFrame) -> Result<StackFrame> {
+            self.call_stack.push(frame);
+            self.exec(true)?;
+            Ok(self.call_stack.last().unwrap().clone())
+        }
+    }
 
     pub fn init_code_obj(code: Bytecode) -> CodeObject {
         CodeObject {

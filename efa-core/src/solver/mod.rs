@@ -55,12 +55,14 @@ where
         let code = obj
             .code
             .iter()
-            .filter(|instr| match instr {
-                Instr::Call
-                | Instr::CallSelf
-                | Instr::LoadFunc(_)
-                | Instr::LoadDyn(_) => true,
-                _ => false,
+            .filter(|instr| {
+                matches!(
+                    instr,
+                    Instr::Call
+                        | Instr::CallSelf
+                        | Instr::LoadFunc(_)
+                        | Instr::LoadDyn(_)
+                )
             })
             .collect::<Vec<&Instr>>();
 
@@ -78,7 +80,7 @@ where
                     let hash = self
                         .node_store
                         .get_code_object_by_name(name)
-                        .map(|(x, y)| x);
+                        .map(|(x, _)| x);
                     Some((Ok(Some(name.to_string())), hash))
                 }
                 _ => None,

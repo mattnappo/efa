@@ -31,8 +31,8 @@ fn hash_from_vec(hash: Vec<u8>) -> Result<Hash> {
 
 /// Build hash from hex string of the form 0xHASH.
 fn hash_from_str(hash_str: &str) -> Result<Hash> {
-    if hash_str.starts_with("0x") {
-        let hash_b = hex::decode(&hash_str[2..])?;
+    if let Some(stripped) = hash_str.strip_prefix("0x") {
+        let hash_b = hex::decode(stripped)?;
         hash_b
             .try_into()
             .map_err(|_| anyhow!("failed to build hash '{hash_str}': invalid hash"))

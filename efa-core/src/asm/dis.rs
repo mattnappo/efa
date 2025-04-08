@@ -1,4 +1,4 @@
-use std::fmt::{self, Write};
+use std::fmt::Write;
 
 use crate::bytecode::Bytecode;
 use crate::vm::CodeObject;
@@ -42,7 +42,7 @@ pub fn disassemble_function(
 
                 Value::Char(c) => format!("{c}"),
                 Value::Bool(b) => format!("{b}"),
-                Value::Container(_) => format!("<cont>"), // TODO
+                Value::Container(_) => "<cont_obj>".to_string(), // TODO
             }
         )
     })?;

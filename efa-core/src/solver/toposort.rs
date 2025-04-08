@@ -25,22 +25,21 @@ fn visit_node<T>(
 where
     T: Hash + Eq + PartialEq + Clone + Debug,
 {
-    if path.contains(&node) {
+    if path.contains(node) {
         bail!("toposort: cycle found");
     } else if visited.contains(node) {
         Ok(visited)
     } else {
         let edges = graph
-            .get(&node)
+            .get(node)
             .ok_or_else(|| anyhow!("toposort: node '{node:?}' not present in graph"))?;
 
         let mut new_path = path.clone();
         new_path.insert(0, node.clone());
 
-        let mut new_visited =
-            edges.into_iter().try_fold(visited.clone(), |acc, edge| {
-                visit_node(graph, edge, new_path.clone(), acc.clone())
-            })?;
+        let mut new_visited = edges.iter().try_fold(visited.clone(), |acc, edge| {
+            visit_node(graph, edge, new_path.clone(), acc.clone())
+        })?;
 
         new_visited.insert(0, node.clone());
         Ok(new_visited)
