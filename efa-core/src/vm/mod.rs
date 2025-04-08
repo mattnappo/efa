@@ -1113,25 +1113,6 @@ pub mod tests {
         }
     }
 
-    fn init_test_vm(code_obj: &CodeObject) -> Vm {
-        let mut vm = Vm::new().unwrap();
-
-        let frame = StackFrame {
-            stack: Vec::new(),
-            code_obj: code_obj.to_owned(),
-            locals: HashMap::from([
-                ("x".into(), Value::int(10)),
-                ("y".into(), Value::string("ok")),
-                ("z".into(), Value::int(64)),
-            ]),
-            instruction: 0,
-        };
-
-        vm.call_stack.push(frame);
-
-        vm
-    }
-
     #[test]
     fn test_load_arg() {
         let main = init_frame(bytecode![Instr::LoadArg(1), Instr::LoadArg(0)]);

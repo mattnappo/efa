@@ -1,0 +1,15 @@
+[package]
+name = "efa-compiler"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "efa_compiler"
+path = "src/lib.rs"
+
+[[bin]]
+name = "efa-c"
+path = "src/cli/run.rs"
+
+[dependencies]
+efa-core = { path = "../efa-core" }
