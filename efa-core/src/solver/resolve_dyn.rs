@@ -102,10 +102,10 @@ impl DynCallResolver {
             .keys()
             .filter_map(|node| {
                 if !solved.contains(node.as_str()) {
-                    let deps = self.solve_node(node).map(|s| {
+                    let deps = self.solve_node(node);
+                    if deps.is_ok() {
                         solved.insert(node);
-                        s
-                    });
+                    }
                     Some((node.to_owned(), deps))
                 } else {
                     None

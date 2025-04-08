@@ -85,21 +85,21 @@ impl Parser {
         let name = parts[0];
         let arg = parts[1];
 
-        let d = name.chars().nth(0).unwrap();
-        let c = arg.chars().last().unwrap();
-
-        if d == '$' && c == ':' {
+        if name.starts_with('$') && arg.ends_with(':') {
             // Now it should be a function def line
             let name = &name[1..];
             let arity = &arg[..arg.len() - 1];
-            let parsed = arity.parse::<usize>();
-            if is_valid_name(name) && parsed.is_ok() {
-                return Some(Result::Ok((name.to_string(), parsed.unwrap())));
-            } else {
-                return Some(Err(ParseError::InvalidFuncDef));
+            let parsed_arity = arity.parse::<usize>();
+
+            match parsed_arity {
+                Result::Ok(arity) if is_valid_name(name) => {
+                    Some(Result::Ok((name.to_string(), arity)))
+                }
+                _ => Some(Err(ParseError::InvalidFuncDef)),
             }
+        } else {
+            None
         }
-        None
     }
 
     fn split_functions(file_contents: &str) -> Result<Vec<String>> {
@@ -125,7 +125,7 @@ impl Parser {
     fn get_labels(
         function: &str,
     ) -> Result<(HashMap<String, usize>, Vec<usize>), ParseError> {
-        // Want a map from label names (L0, L1) to label number
+        // Want a map from label names (L0, L1, etc) to label number
         // And an array of offsets (where index is label number)
         let mut j = 0;
 
@@ -140,7 +140,7 @@ impl Parser {
                 }
 
                 let word = parts[0];
-                if word.ends_with(':') {
+                if !word.ends_with(':') {
                     return None;
                 }
 
@@ -161,14 +161,14 @@ impl Parser {
             .map(|(i, (name, offset))| ((name, i), offset))
             .unzip();
 
-        Result::Ok(dbg!((label_names, label_offsets)))
+        Result::Ok((label_names, label_offsets))
     }
 
     fn get_literals(function: &str) -> Result<Vec<Value>, ParseError> {
         let code = function.lines();
 
         code.filter(|line| !line.is_empty())
-            .filter(|line| line.chars().nth(0).unwrap() == '.')
+            .filter(|line| line.starts_with('.'))
             .filter_map(|line| {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() < 2 {
@@ -177,7 +177,6 @@ impl Parser {
 
                 let first = parts[0];
                 let arg = parts[1];
-                let arg_chars: Vec<char> = arg.chars().collect();
 
                 let opcode = &first[1..];
                 if opcode != "lit" {
@@ -193,7 +192,7 @@ impl Parser {
                 }
 
                 // String case
-                if arg_chars[0] == '"' {
+                if arg.starts_with('"') {
                     let s = Self::get_str_lit(line).map(Value::String);
                     return Some(s);
                 }
@@ -319,7 +318,6 @@ impl Parser {
 
                     // Jump instructions
                     (op, None, Some(arg)) if op.starts_with("jmp") => {
-                        dbg!(&arg);
                         Self::get_jump_instr(op, &label_names, arg)?
                     }
 

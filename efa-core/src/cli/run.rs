@@ -39,7 +39,7 @@ fn main() -> Result<()> {
             input_file,
             db_path,
         } => cli::run_scratch_file(&input_file, db_path.as_deref())
-            .expect(&format!("ERROR {}", input_file)),
+            .unwrap_or_else(|e| panic!("ERROR {}\n{}", input_file, e)),
         Command::Dis { db_path } => {
             cli::disassemble_db(&db_path)?;
             0

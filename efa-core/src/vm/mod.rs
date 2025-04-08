@@ -1007,13 +1007,10 @@ impl Value {
 
     pub fn or(self, other: Self) -> Self {
         let left_truthy = self.is_truthy();
-        let right_truthy = other.is_truthy();
 
         // Return the first truthy value, or the last one if both are falsy
         if left_truthy {
             self
-        } else if right_truthy {
-            other
         } else {
             other
         }

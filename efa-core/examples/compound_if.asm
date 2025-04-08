@@ -8,8 +8,8 @@ $main 0:
     load_lit 1
     store_loc 0
 
-    # y := 2
-    load_lit 2
+    # y := 3
+    load_lit 3
     store_loc 1
     
     # (x == 1) && (y == 2 || y == 3)
@@ -32,9 +32,9 @@ $main 0:
 
     jmp_t success
 
-#failure:
-#    load_lit 1
-#    ret_val
+failure:
+    load_lit 1
+    ret_val
 
 success:
     load_lit 0
